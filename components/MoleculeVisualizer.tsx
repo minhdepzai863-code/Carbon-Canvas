@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { MoleculeData, Atom, Bond } from '../types';
-import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Grid3X3, RefreshCw, Info } from 'lucide-react';
+import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Grid3X3, RefreshCw, Info, Ruler } from 'lucide-react';
 
 interface MoleculeVisualizerProps {
   data: MoleculeData | null;
@@ -10,7 +10,7 @@ interface MoleculeVisualizerProps {
   onAnalyze?: (data: MoleculeData) => void;
 }
 
-type EditMode = 'view' | 'add-bond' | 'break-bond' | 'add-atom' | 'edit-stereo';
+type EditMode = 'view' | 'add-bond' | 'break-bond' | 'add-atom' | 'edit-stereo' | 'measure-angle';
 
 interface TooltipState {
     x: number;
@@ -123,12 +123,18 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   // Resonance UI
   const [resonanceIndex, setResonanceIndex] = useState(-1); // -1 = Main, 0..n = Contributors
 
+  // Angle Measurement
+  const [angleSelection, setAngleSelection] = useState<string[]>([]);
+  const [measuredAngle, setMeasuredAngle] = useState<string | null>(null);
+
   // Refs for access inside D3 event listeners
   const modeRef = useRef(mode);
   const selectedAtomRef = useRef(selectedAtomId);
+  const angleSelectionRef = useRef(angleSelection);
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { selectedAtomRef.current = selectedAtomId; }, [selectedAtomId]);
+  useEffect(() => { angleSelectionRef.current = angleSelection; }, [angleSelection]);
 
   // Initialize local data
   useEffect(() => {
@@ -140,13 +146,15 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       setErrorMsg(null);
       setErrorAtomIds(new Set());
       setResonanceIndex(-1);
+      setAngleSelection([]);
+      setMeasuredAngle(null);
       transformRef.current = d3.zoomIdentity; 
     }
   }, [data]);
 
   useEffect(() => {
       if (errorMsg) {
-          const timer = setTimeout(() => setErrorMsg(null), 3000);
+          const timer = setTimeout(() => setErrorMsg(null), 4000);
           return () => clearTimeout(timer);
       }
   }, [errorMsg]);
@@ -181,7 +189,8 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
     return {
         ...localData,
         atoms: atomsWithPos,
-        bonds: cleanBonds
+        bonds: cleanBonds,
+        symmetry: localData.symmetry // Preserve symmetry
     };
   };
 
@@ -387,6 +396,31 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       setLocalData({ ...snapshot, bonds: newBonds });
   };
 
+  const calculateAngle = (id1: string, id2: string, id3: string, nodes: any[]) => {
+      const p1 = nodes.find(n => n.id === id1);
+      const p2 = nodes.find(n => n.id === id2); // Vertex
+      const p3 = nodes.find(n => n.id === id3);
+
+      if (!p1 || !p2 || !p3) return null;
+
+      // Vectors p2->p1 and p2->p3
+      const v1x = p1.x - p2.x;
+      const v1y = p1.y - p2.y;
+      const v2x = p3.x - p2.x;
+      const v2y = p3.y - p2.y;
+
+      const dot = v1x * v2x + v1y * v2y;
+      const mag1 = Math.sqrt(v1x*v1x + v1y*v1y);
+      const mag2 = Math.sqrt(v2x*v2x + v2y*v2y);
+
+      if (mag1 === 0 || mag2 === 0) return null;
+
+      const angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
+      const angleDeg = (angleRad * 180) / Math.PI;
+      
+      return angleDeg.toFixed(1);
+  };
+
   const getWedgePath = (x1: number, y1: number, x2: number, y2: number, width: number = 6): string => {
       const dx = x2 - x1;
       const dy = y2 - y1;
@@ -456,6 +490,11 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
             if (m === 'add-atom') {
                 const [screenX, screenY] = d3.pointer(event, svg.node()); 
                 handleAddAtom(screenX, screenY);
+            } else if (m === 'measure-angle') {
+                 // Don't clear selection in measure mode on background click, to allow easy retry? 
+                 // Or clear it. Let's clear it for UI consistency.
+                 setAngleSelection([]);
+                 setMeasuredAngle(null);
             } else {
                 setSelectedAtomId(null); 
             }
@@ -574,7 +613,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
         .attr("class", "bond-visible")
         .attr("stroke", (d: any) => d.stereo === 'wedge' ? '#1e293b' : '#94a3b8')
         .attr("stroke-opacity", (d: any) => d.stereo === 'wedge' ? 1 : 0.8)
-        .attr("stroke-width", (d: any) => d.order === 1 ? 4 : 3)
+        .attr("stroke-width", (d: any) => d.order === 1 ? 4 : 2.5) // Thinner lines for multiple bonds
         .attr("stroke-linecap", "round")
         .attr("stroke-dasharray", (d: any) => d.stereo === 'dash' ? "4,4" : null)
         .attr("fill", (d: any) => d.stereo === 'wedge' ? '#1e293b' : 'none');
@@ -605,13 +644,34 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
            } else {
              handleToggleBond(d.id);
            }
-        } 
+        } else if (m === 'measure-angle') {
+            const currentSelection = angleSelectionRef.current;
+            if (currentSelection.length < 3) {
+                const newSelection = [...currentSelection, d.id];
+                setAngleSelection(newSelection);
+                
+                if (newSelection.length === 3) {
+                    const deg = calculateAngle(newSelection[0], newSelection[1], newSelection[2], nodesRef.current);
+                    if (deg) {
+                        setMeasuredAngle(deg);
+                        setErrorMsg(`Bond Angle: ${deg}°`);
+                    } else {
+                        setErrorMsg(`Could not calculate angle.`);
+                        setAngleSelection([]);
+                    }
+                }
+            } else {
+                // Start new selection
+                setAngleSelection([d.id]);
+                setMeasuredAngle(null);
+            }
+        }
       })
       .on("mouseenter", function(event, d: any) {
           const m = modeRef.current;
           const group = d3.select(this);
 
-          if (m === 'view') {
+          if (m === 'view' || m === 'measure-angle') {
               setTooltip({ x: event.pageX, y: event.pageY, atom: d });
           } else if (m === 'add-bond') {
               // Check Valency
@@ -733,20 +793,22 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
             const nx = -dy / len; 
             const ny = dx / len; 
             
-            const offset = 4;
 
             if (d.order === 1) {
                  return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
+            
             if (d.order === 2) {
+                const offset = 4.5; // Slightly wider separation
                 return `M ${x1 + nx*offset} ${y1 + ny*offset} L ${x2 + nx*offset} ${y2 + ny*offset} ` +
                        `M ${x1 - nx*offset} ${y1 - ny*offset} L ${x2 - nx*offset} ${y2 - ny*offset}`;
             }
+            
             if (d.order === 3) {
-                const off2 = offset * 1.5;
+                const offset = 5.5; // Wider for triple
                 return `M ${x1} ${y1} L ${x2} ${y2} ` +
-                       `M ${x1 + nx*off2} ${y1 + ny*off2} L ${x2 + nx*off2} ${y2 + ny*off2} ` +
-                       `M ${x1 - nx*off2} ${y1 - ny*off2} L ${x2 - nx*off2} ${y2 - ny*off2}`;
+                       `M ${x1 + nx*offset} ${y1 + ny*offset} L ${x2 + nx*offset} ${y2 + ny*offset} ` +
+                       `M ${x1 - nx*offset} ${y1 - ny*offset} L ${x2 - nx*offset} ${y2 - ny*offset}`;
             }
             
             return `M ${x1} ${y1} L ${x2} ${y2}`;
@@ -787,15 +849,19 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
     };
   }, [localData]);
 
-  // Effect for visual error handling (flashing red)
+  // Effect for visual feedback (valency error or angle selection)
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     
     svg.selectAll(".node-wrapper").each(function(d: any) {
         const isError = errorAtomIds.has(d.id);
+        const isAngleSelected = angleSelection.includes(d.id);
+        const selectionIndex = angleSelection.indexOf(d.id);
+
         const group = d3.select(this);
         const circle = group.select(".atom-main");
+        const halo = group.select(".selection-halo");
         const elData = getElementData(d.element);
 
         if (isError) {
@@ -803,20 +869,36 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                 .attr("fill", "#ef4444")
                 .attr("stroke", "#b91c1c")
                 .attr("stroke-width", 4);
+        } else if (isAngleSelected) {
+             circle.transition().duration(100)
+                .attr("fill", "#fcd34d") // Amber for measure
+                .attr("stroke", "#f59e0b")
+                .attr("stroke-width", 3);
+             
+             halo.transition().duration(100)
+                .attr("opacity", 1)
+                .attr("stroke", "#f59e0b")
+                .attr("stroke-dasharray", "none");
+             
         } else {
             circle.transition().duration(300)
                 .attr("fill", elData.color)
                 .attr("stroke", "#1e293b")
                 .attr("stroke-width", 1.5);
+            
+            // Only hide halo if NOT the general edit selection
+            if (selectedAtomId !== d.id) {
+                halo.transition().duration(100).attr("opacity", 0);
+            }
         }
     });
-  }, [errorAtomIds]);
+  }, [errorAtomIds, angleSelection]);
 
   useEffect(() => {
       if (!svgRef.current) return;
       const svg = d3.select(svgRef.current);
       svg.selectAll(".node-wrapper")
-         .attr("cursor", mode === 'add-bond' ? 'pointer' : mode === 'view' ? 'grab' : 'default');
+         .attr("cursor", mode === 'add-bond' || mode === 'measure-angle' ? 'pointer' : mode === 'view' ? 'grab' : 'default');
       
       svg.selectAll(".link-wrapper")
          .attr("cursor", (mode === 'break-bond' || mode === 'add-bond' || mode === 'edit-stereo') ? 'pointer' : 'default');
@@ -863,10 +945,16 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       )}
       
       {errorMsg && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-40 animate-fade-in">
-            <Info size={18} />
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg border border-slate-600 flex items-center gap-2 z-40 animate-fade-in">
+            <Info size={18} className="text-blue-400" />
             <span className="text-sm font-bold">{errorMsg}</span>
         </div>
+      )}
+      
+      {measuredAngle && (
+         <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-amber-100 text-amber-800 px-4 py-2 rounded-lg shadow-lg border border-amber-300 z-40 animate-fade-in font-bold">
+             ∠ {measuredAngle}°
+         </div>
       )}
 
       {tooltip && (
@@ -938,7 +1026,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
          <>
             <div className="absolute top-4 right-4 bg-white p-2 rounded-lg shadow-lg border border-slate-200 flex flex-col gap-2 z-20">
                 <button 
-                    onClick={() => { setMode('view'); setSelectedAtomId(null); }}
+                    onClick={() => { setMode('view'); setSelectedAtomId(null); setAngleSelection([]); }}
                     title="View / Move Atoms"
                     className={`p-2 rounded transition-colors ${mode === 'view' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
@@ -946,7 +1034,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                 </button>
                 
                 <button 
-                    onClick={() => { setMode('add-atom'); setSelectedAtomId(null); }}
+                    onClick={() => { setMode('add-atom'); setSelectedAtomId(null); setAngleSelection([]); }}
                     title="Add Atom"
                     className={`p-2 rounded transition-colors ${mode === 'add-atom' ? 'bg-purple-100 text-purple-600' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
@@ -954,21 +1042,28 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                 </button>
 
                 <button 
-                    onClick={() => { setMode('add-bond'); setSelectedAtomId(null); }}
+                    onClick={() => { setMode('add-bond'); setSelectedAtomId(null); setAngleSelection([]); }}
                     title="Add Bond. Click 2 atoms to connect. Click bond to cycle order (1-2-3)."
                     className={`p-2 rounded transition-colors ${mode === 'add-bond' ? 'bg-emerald-100 text-emerald-600' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
                     <LinkIcon size={20} />
                 </button>
                 <button 
-                    onClick={() => { setMode('edit-stereo'); setSelectedAtomId(null); }}
+                    onClick={() => { setMode('edit-stereo'); setSelectedAtomId(null); setAngleSelection([]); }}
                     title="Edit Stereochemistry (Click single bonds)"
                     className={`p-2 rounded transition-colors ${mode === 'edit-stereo' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
                     <Layers size={20} />
                 </button>
                 <button 
-                    onClick={() => { setMode('break-bond'); setSelectedAtomId(null); }}
+                    onClick={() => { setMode('measure-angle'); setSelectedAtomId(null); setAngleSelection([]); }}
+                    title="Measure Angle (Click 3 atoms: Start -> Center -> End)"
+                    className={`p-2 rounded transition-colors ${mode === 'measure-angle' ? 'bg-amber-100 text-amber-600' : 'text-slate-500 hover:bg-slate-100'}`}
+                >
+                    <Ruler size={20} />
+                </button>
+                <button 
+                    onClick={() => { setMode('break-bond'); setSelectedAtomId(null); setAngleSelection([]); }}
                     title="Break Bond (Click bond)"
                     className={`p-2 rounded transition-colors ${mode === 'break-bond' ? 'bg-red-100 text-red-600' : 'text-slate-500 hover:bg-slate-100'}`}
                 >
@@ -1114,6 +1209,20 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                 <p className="text-slate-300 text-sm mt-1 leading-relaxed">
                     {localData.description}
                 </p>
+                
+                {localData.symmetry && (
+                    <div className="mt-3 pt-3 border-t border-slate-700">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-bold text-indigo-400 uppercase">Point Group:</span>
+                            <span className="text-sm font-mono text-white bg-indigo-900/50 px-2 rounded">{localData.symmetry.pointGroup}</span>
+                        </div>
+                        <div className="text-xs text-slate-400">
+                            <span className="font-bold mr-1">Elements:</span>
+                            {localData.symmetry.elements.join(", ")}
+                        </div>
+                    </div>
+                )}
+
                 <div className="mt-2 flex gap-2 text-xs text-slate-400 items-center justify-between">
                     <div>
                         <span>{localData.atoms.length} Atoms</span>
@@ -1126,6 +1235,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                         {mode === 'add-bond' && 'Click 2 atoms to link. Click bond to cycle.'}
                         {mode === 'edit-stereo' && 'Click single bonds to toggle Wedge/Dash.'}
                         {mode === 'break-bond' && 'Click bond to break'}
+                        {mode === 'measure-angle' && 'Select 3 atoms (Start → Center → End)'}
                     </div>
                 </div>
             </div>

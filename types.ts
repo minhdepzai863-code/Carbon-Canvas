@@ -1,3 +1,4 @@
+
 export enum AppView {
   DASHBOARD = 'DASHBOARD',
   MOLECULE_VIEWER = 'MOLECULE_VIEWER',
@@ -32,6 +33,10 @@ export interface MoleculeData {
   atoms: Atom[];
   bonds: Bond[];
   resonanceStructures?: ResonanceStructure[];
+  symmetry?: {
+    pointGroup: string;
+    elements: string[];
+  };
 }
 
 export interface ArchiveItem {

@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Atom, Beaker, BookOpen, BrainCircuit, Menu, MessageCircle, X, 
-  Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer
+  Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer, Palette, Moon, Sun, Gauge, Flame, Droplets
 } from 'lucide-react';
 import { AppView, MoleculeData, QuizData, ReactionData, ArchiveItem, Module, UserStats } from './types';
 import * as gemini from './services/geminiService';
@@ -11,30 +10,52 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 // --- Helper Components ---
 
-const NavItem = ({ view, current, icon: Icon, label, onClick }: any) => (
+const NavItem = ({ view, current, icon: Icon, label, onClick, delay }: any) => (
   <button
     onClick={() => onClick(view)}
-    className={`flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg transition-all ${
+    className={`flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg transition-all duration-300 group relative overflow-hidden ${
       current === view 
-        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
-        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-    }`}
+        ? 'bg-skin-primary text-white shadow-lg shadow-skin-primary/20' 
+        : 'text-skin-sidebar-text hover:bg-white/10 hover:text-white'
+    } animate-slide-up`}
+    style={{ animationDelay: `${delay}ms` }}
   >
-    <Icon size={20} />
-    <span className="font-medium">{label}</span>
+    <div className={`absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300 ${current === view ? 'hidden' : ''}`} />
+    <Icon size={20} className={`transition-transform duration-300 ${current === view ? 'scale-110' : 'group-hover:scale-110'}`} />
+    <span className="font-medium z-10">{label}</span>
   </button>
 );
 
-const DashboardCard = ({ title, value, subtitle, icon: Icon, color }: any) => (
-  <div className="bg-white border border-slate-200 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-    <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${color}`}>
+const DashboardCard = ({ title, value, subtitle, icon: Icon, colorClass, delay }: any) => (
+  <div 
+    className={`bg-skin-surface border border-skin-border p-6 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 animate-enter`}
+    style={{ animationDelay: `${delay}ms` }}
+  >
+    <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${colorClass}`}>
       <Icon className="text-white" size={24} />
     </div>
-    <h3 className="text-3xl font-bold text-slate-800">{value}</h3>
-    <p className="text-slate-900 font-medium mt-1">{title}</p>
-    <p className="text-slate-500 text-sm mt-1">{subtitle}</p>
+    <h3 className="text-3xl font-bold text-skin-main">{value}</h3>
+    <p className="text-skin-main font-medium mt-1 opacity-90">{title}</p>
+    <p className="text-skin-muted text-sm mt-1">{subtitle}</p>
   </div>
 );
+
+// --- Theme Configuration ---
+type ThemeId = 'default' | 'emerald' | 'purple' | 'dark';
+
+interface ThemeConfig {
+  id: ThemeId;
+  name: string;
+  icon: any;
+  color: string;
+}
+
+const THEMES: ThemeConfig[] = [
+  { id: 'default', name: 'Scientific Blue', icon: Atom, color: 'bg-blue-600' },
+  { id: 'emerald', name: 'Bio Emerald', icon: FlaskConical, color: 'bg-emerald-600' },
+  { id: 'purple', name: 'Noble Purple', icon: Award, color: 'bg-violet-600' },
+  { id: 'dark', name: 'Night Mode', icon: Moon, color: 'bg-slate-800' },
+];
 
 const CURRICULA: Record<string, Module[]> = {
   UNDERGRAD: [
@@ -98,6 +119,8 @@ const CURRICULA: Record<string, Module[]> = {
 const App = () => {
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>('default');
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
   // User Progress State
   const [selectedSyllabus, setSelectedSyllabus] = useState('UNDERGRAD');
@@ -116,7 +139,14 @@ const App = () => {
   const [moleculeData, setMoleculeData] = useState<MoleculeData | null>(null);
   const [loadingMolecule, setLoadingMolecule] = useState(false);
   const [reactionReagentInput, setReactionReagentInput] = useState("");
-  const [reactionConditionsInput, setReactionConditionsInput] = useState("");
+  
+  // Reaction Conditions State
+  const [reactionTemp, setReactionTemp] = useState(25);
+  const [reactionPressure, setReactionPressure] = useState(1);
+  const [reactionCatalyst, setReactionCatalyst] = useState("");
+  const [reactionSolvent, setReactionSolvent] = useState("Ethanol");
+  const [showConditions, setShowConditions] = useState(false);
+
 
   // Reaction Tutor State
   const [reactionInput, setReactionInput] = useState("SN2 reaction of methyl bromide with hydroxide");
@@ -139,13 +169,18 @@ const App = () => {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // --- Effect to Apply Theme ---
+  useEffect(() => {
+    document.body.className = `theme-${currentTheme}`;
+  }, [currentTheme]);
+
   // --- Handlers ---
 
   const handleSyllabusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newSyllabus = e.target.value;
     setSelectedSyllabus(newSyllabus);
     setModules(CURRICULA[newSyllabus]);
-    setExpandedCurriculum(false); // Reset expander when syllabus changes
+    setExpandedCurriculum(false); 
   };
 
   const handleMoleculeSearch = async (e: React.FormEvent) => {
@@ -181,10 +216,16 @@ const App = () => {
       
       setLoadingMolecule(true);
       try {
-          const productData = await gemini.applyReaction(moleculeData, reactionReagentInput, reactionConditionsInput || "Standard conditions");
+          const conditions = {
+              temp: reactionTemp,
+              pressure: reactionPressure,
+              catalyst: reactionCatalyst,
+              solvent: reactionSolvent
+          };
+
+          const productData = await gemini.applyReaction(moleculeData, reactionReagentInput, conditions);
           setMoleculeData(productData);
-          setReactionReagentInput(""); // Clear input on success
-          setReactionConditionsInput("");
+          // Don't clear reagents to allow easy tweaking of conditions
           setUserStats(prev => ({ ...prev, reactionsMastered: prev.reactionsMastered + 1 }));
       } catch (error) {
           alert("Failed to simulate reaction.");
@@ -341,19 +382,19 @@ const App = () => {
 
       return (
         <div className="p-8 animate-fade-in overflow-y-auto h-full">
-        <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 animate-slide-up">
             <div>
-                <h1 className="text-3xl font-bold text-slate-900">Welcome back, Chemist!</h1>
-                <p className="text-slate-500 mt-2">Your laboratory is ready.</p>
+                <h1 className="text-4xl font-bold text-skin-main tracking-tight">Welcome back, Chemist!</h1>
+                <p className="text-skin-muted mt-2 text-lg">Your laboratory is ready for discovery.</p>
             </div>
-            <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                <GraduationCap className="text-slate-500 ml-2" size={20} />
+            <div className="flex items-center gap-3 bg-skin-surface p-2 rounded-xl border border-skin-border shadow-sm">
+                <GraduationCap className="text-skin-muted ml-2" size={20} />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Curriculum</span>
+                    <span className="text-[10px] font-bold text-skin-muted uppercase tracking-wider">Curriculum</span>
                     <select 
                         value={selectedSyllabus}
                         onChange={handleSyllabusChange}
-                        className="text-sm font-bold text-slate-800 bg-transparent border-none focus:ring-0 cursor-pointer pr-8 outline-none"
+                        className="text-sm font-bold text-skin-main bg-transparent border-none focus:ring-0 cursor-pointer pr-8 outline-none"
                     >
                         <option value="UNDERGRAD">Undergraduate</option>
                         <option value="ALEVEL">A-Level (UK)</option>
@@ -369,67 +410,75 @@ const App = () => {
             value={modules.filter(m => m.status === 'completed').length + '/' + modules.length} 
             subtitle="Syllabus Progress" 
             icon={BookOpen} 
-            color="bg-emerald-500" 
+            colorClass="bg-emerald-500"
+            delay={100}
             />
             <DashboardCard 
             title="Avg Quiz Score" 
             value={`${avgScore}%`} 
             subtitle={`${userStats.quizzesTaken} Quizzes Taken`} 
             icon={Award} 
-            color="bg-amber-500" 
+            colorClass="bg-amber-500" 
+            delay={200}
             />
             <DashboardCard 
             title="Reactions" 
             value={userStats.reactionsMastered} 
             subtitle="Applied in Lab" 
             icon={Beaker} 
-            color="bg-indigo-500" 
+            colorClass="bg-indigo-500" 
+            delay={300}
             />
             <DashboardCard 
             title="Archive" 
             value={archive.length} 
             subtitle="Saved Molecules" 
             icon={Archive} 
-            color="bg-blue-500" 
+            colorClass="bg-blue-500" 
+            delay={400}
             />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Learning Path / Modules */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="bg-skin-surface p-6 rounded-xl border border-skin-border shadow-sm animate-enter delay-200">
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-lg font-bold text-slate-800">Your Curriculum</h3>
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                    <h3 className="text-lg font-bold text-skin-main">Your Curriculum</h3>
+                    <span className="text-xs font-bold text-skin-primary bg-skin-primary-light px-3 py-1 rounded-full">
                         {Math.round((modules.filter(m => m.status === 'completed').length / modules.length) * 100)}% Complete
                     </span>
                 </div>
                 <div className="space-y-4">
-                    {displayedModules.map((module) => (
-                        <div key={module.id} className={`p-4 rounded-xl border transition-all ${
-                            module.status === 'locked' ? 'bg-slate-50 border-slate-100 opacity-70' : 
-                            module.status === 'active' ? 'bg-white border-blue-200 shadow-sm ring-1 ring-blue-100' :
-                            'bg-emerald-50 border-emerald-100'
-                        }`}>
+                    {displayedModules.map((module, idx) => (
+                        <div 
+                            key={module.id} 
+                            className={`p-4 rounded-xl border transition-all duration-300 hover:shadow-md hover:-translate-x-[-4px] ${
+                            module.status === 'locked' ? 'bg-skin-base border-skin-border opacity-60' : 
+                            module.status === 'active' ? 'bg-skin-surface border-skin-primary shadow-sm ring-1 ring-skin-primary-light' :
+                            'bg-emerald-50/10 border-emerald-500/30'
+                        } animate-enter`}
+                        style={{ animationDelay: `${idx * 50}ms` }}
+                        >
                             <div className="flex items-start justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                                        module.status === 'locked' ? 'bg-slate-200 text-slate-500' : 
-                                        module.status === 'active' ? 'bg-blue-600 text-white' :
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-transform ${
+                                        module.status === 'locked' ? 'bg-skin-border text-skin-muted' : 
+                                        module.status === 'active' ? 'bg-skin-primary text-white scale-110' :
                                         'bg-emerald-500 text-white'
                                     }`}>
-                                        {module.status === 'locked' ? <Lock size={14}/> : modules.findIndex(m => m.id === module.id) + 1}
+                                        {module.status === 'locked' ? <Lock size={16}/> : modules.findIndex(m => m.id === module.id) + 1}
                                     </div>
                                     <div>
-                                        <h4 className="font-bold text-slate-800">{module.title}</h4>
-                                        <p className="text-xs text-slate-500">{module.description}</p>
+                                        <h4 className="font-bold text-skin-main">{module.title}</h4>
+                                        <p className="text-xs text-skin-muted mt-0.5">{module.description}</p>
                                     </div>
                                 </div>
                                 {module.status === 'active' && (
                                     <button 
                                         onClick={() => { setView(AppView.QUIZ_ARENA); startQuiz(module.topic, module.id); }}
-                                        className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"
+                                        className="bg-skin-primary text-white p-2.5 rounded-lg hover:brightness-110 transition-all hover:scale-105 active:scale-95 shadow-md shadow-skin-primary/30"
                                     >
-                                        <Play size={16} fill="currentColor" />
+                                        <Play size={18} fill="currentColor" />
                                     </button>
                                 )}
                                 {module.status === 'completed' && (
@@ -444,7 +493,7 @@ const App = () => {
                     {modules.length > 5 && (
                         <button 
                             onClick={() => setExpandedCurriculum(!expandedCurriculum)}
-                            className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors text-sm font-medium"
+                            className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-skin-muted hover:text-skin-primary hover:bg-skin-base rounded-lg transition-colors text-sm font-medium"
                         >
                             {expandedCurriculum ? (
                                 <>Show Less <ChevronUp size={16} /></>
@@ -458,17 +507,20 @@ const App = () => {
 
             <div className="flex flex-col gap-8">
                 {/* Performance Chart */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-80">
-                    <h3 className="text-lg font-bold text-slate-800 mb-4">Performance History</h3>
+                <div className="bg-skin-surface p-6 rounded-xl border border-skin-border shadow-sm h-80 animate-enter delay-300">
+                    <h3 className="text-lg font-bold text-skin-main mb-4">Performance History</h3>
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{top: 10, right: 10, left: -20, bottom: 0}}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                            <XAxis dataKey="name" tick={{fontSize: 10}} axisLine={false} tickLine={false} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--color-border))"/>
+                            <XAxis dataKey="name" tick={{fontSize: 10, fill: 'rgb(var(--color-text-muted))'}} axisLine={false} tickLine={false} />
                             <YAxis domain={[0, 100]} hide />
-                            <Tooltip cursor={{fill: '#f1f5f9'}} />
-                            <Bar dataKey="score" radius={[4, 4, 0, 0]} barSize={32} fill="#3b82f6">
+                            <Tooltip 
+                                cursor={{fill: 'rgb(var(--color-bg-main))'}} 
+                                contentStyle={{ backgroundColor: 'rgb(var(--color-surface))', borderRadius: '8px', border: '1px solid rgb(var(--color-border))' }}
+                            />
+                            <Bar dataKey="score" radius={[4, 4, 0, 0]} barSize={32} fill="rgb(var(--color-primary))">
                                 {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.status === 'completed' ? '#10b981' : '#94a3b8'} />
+                                    <Cell key={`cell-${index}`} fill={entry.status === 'completed' ? '#10b981' : 'rgb(var(--color-text-muted))'} />
                                 ))}
                             </Bar>
                         </BarChart>
@@ -476,30 +528,30 @@ const App = () => {
                 </div>
 
                  {/* Quick Archive Access */}
-                 <div className="bg-slate-900 p-6 rounded-xl text-white flex-1 relative overflow-hidden">
+                 <div className="bg-skin-sidebar-bg p-6 rounded-xl text-skin-sidebar-text flex-1 relative overflow-hidden animate-enter delay-400 shadow-lg">
                     <div className="relative z-10">
-                        <h3 className="text-xl font-bold mb-2">Saved Molecules</h3>
-                        <p className="text-slate-400 mb-4">Access your personal library of structures.</p>
-                        <div className="flex gap-3 overflow-x-auto pb-2">
+                        <h3 className="text-xl font-bold mb-2 text-white">Saved Molecules</h3>
+                        <p className="text-white/60 mb-4">Access your personal library of structures.</p>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                             {archive.slice(0, 3).map(item => (
                                 <button 
                                     key={item.id}
                                     onClick={() => loadFromArchive(item)}
-                                    className="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded text-xs font-mono whitespace-nowrap border border-slate-700"
+                                    className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded text-xs font-mono whitespace-nowrap border border-white/10 transition-colors"
                                 >
                                     {item.name}
                                 </button>
                             ))}
-                            {archive.length === 0 && <span className="text-xs text-slate-600 italic">No saved items yet.</span>}
+                            {archive.length === 0 && <span className="text-xs text-white/40 italic">No saved items yet.</span>}
                         </div>
                         <button 
                              onClick={() => setView(AppView.ARCHIVE)}
-                             className="mt-4 text-blue-400 hover:text-blue-300 text-sm font-bold flex items-center gap-1"
+                             className="mt-4 text-skin-primary hover:text-white text-sm font-bold flex items-center gap-1 transition-colors"
                         >
                             View All <ArrowRight size={14} />
                         </button>
                     </div>
-                    <Archive className="absolute -bottom-6 -right-6 w-32 h-32 text-white opacity-5" />
+                    <Archive className="absolute -bottom-6 -right-6 w-32 h-32 text-white opacity-5 rotate-12" />
                 </div>
             </div>
         </div>
@@ -508,61 +560,157 @@ const App = () => {
   };
 
   const renderMoleculeViewer = () => (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative animate-fade-in">
       {/* Top Control Bar */}
-      <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap gap-4 items-center shadow-sm z-10">
+      <div className="p-4 border-b border-skin-border bg-skin-surface flex flex-col md:flex-row gap-4 items-start md:items-center shadow-sm z-30">
         {/* Search Form */}
-        <form onSubmit={handleMoleculeSearch} className="flex gap-2 flex-1 min-w-[300px]">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 text-slate-400 w-5 h-5" />
+        <form onSubmit={handleMoleculeSearch} className="flex gap-2 flex-1 w-full md:w-auto">
+          <div className="relative flex-1 group">
+            <Search className="absolute left-3 top-3 text-skin-muted w-5 h-5 group-focus-within:text-skin-primary transition-colors" />
             <input 
               type="text" 
               value={moleculeInput}
               onChange={(e) => setMoleculeInput(e.target.value)}
-              placeholder="Enter molecule name..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all"
+              placeholder="Search Molecule..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-skin-border bg-skin-base focus:ring-2 focus:ring-skin-primary focus:border-transparent focus:outline-none transition-all"
             />
           </div>
           <button 
             type="submit" 
             disabled={loadingMolecule}
-            className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="bg-skin-primary text-white px-6 py-2.5 rounded-lg font-medium hover:brightness-110 transition-all disabled:opacity-50 hover:shadow-lg shadow-skin-primary/20 whitespace-nowrap"
           >
             {loadingMolecule ? 'Loading...' : 'Visualize'}
           </button>
         </form>
 
-        {/* Reaction Simulator Input */}
-        <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
+        {/* Reaction Simulator */}
+        <div className="h-8 w-px bg-skin-border hidden md:block"></div>
         
-        <form onSubmit={handleApplyReaction} className="flex gap-2 flex-[1.5] min-w-[400px]">
-            <div className="relative flex-1">
+        <form onSubmit={handleApplyReaction} className="flex flex-col md:flex-row gap-2 flex-[1.5] w-full md:w-auto relative">
+            <div className="relative flex-1 group">
                 <FlaskConical className="absolute left-3 top-3 text-amber-500 w-5 h-5" />
                 <input 
                     type="text" 
                     value={reactionReagentInput}
                     onChange={(e) => setReactionReagentInput(e.target.value)}
                     placeholder="React with..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-none bg-amber-50/30"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-skin-border bg-amber-50/10 focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all"
                 />
             </div>
-            <div className="relative flex-1">
-                <Thermometer className="absolute left-3 top-3 text-amber-500 w-5 h-5" />
-                <input 
-                    type="text" 
-                    value={reactionConditionsInput}
-                    onChange={(e) => setReactionConditionsInput(e.target.value)}
-                    placeholder="Conditions (e.g. Heat, Acid)"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-none bg-amber-50/30"
-                />
+
+            <div className="flex gap-2">
+                <button
+                    type="button"
+                    onClick={() => setShowConditions(!showConditions)}
+                    className={`px-3 py-2.5 rounded-lg border transition-all flex items-center gap-2 ${
+                        showConditions 
+                            ? 'bg-amber-500 text-white border-amber-600' 
+                            : 'bg-skin-base border-skin-border text-skin-muted hover:bg-skin-surface'
+                    }`}
+                    title="Reaction Conditions"
+                >
+                    <Thermometer size={20} />
+                    <span className="text-xs font-bold hidden lg:inline">Conditions</span>
+                    <ChevronDown size={16} className={`transition-transform ${showConditions ? 'rotate-180' : ''}`} />
+                </button>
+
+                <button 
+                    type="submit"
+                    disabled={loadingMolecule || !moleculeData}
+                    className="bg-amber-500 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-amber-600 transition-all disabled:opacity-50 whitespace-nowrap shadow-lg shadow-amber-500/20"
+                >
+                    React
+                </button>
             </div>
-            <button 
-                type="submit"
-                disabled={loadingMolecule || !moleculeData}
-                className="bg-amber-500 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-amber-600 transition-colors disabled:opacity-50 whitespace-nowrap"
-            >
-                React
-            </button>
+            
+            {/* Advanced Conditions Dropdown */}
+            {showConditions && (
+                <div className="absolute top-full right-0 mt-2 w-80 bg-skin-surface border border-skin-border p-5 rounded-xl shadow-xl z-40 animate-enter origin-top-right">
+                    <h4 className="text-sm font-bold text-skin-main mb-4 flex items-center gap-2">
+                        <Thermometer size={16} className="text-amber-500"/> Reaction Conditions
+                    </h4>
+                    
+                    {/* Temperature Slider */}
+                    <div className="mb-4">
+                        <div className="flex justify-between text-xs mb-1">
+                            <span className="text-skin-muted flex items-center gap-1"><Flame size={12}/> Temp</span>
+                            <span className="font-mono font-bold text-skin-main">{reactionTemp}°C</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="-78" max="500" step="10"
+                            value={reactionTemp}
+                            onChange={(e) => setReactionTemp(parseInt(e.target.value))}
+                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-skin-muted mt-1">
+                            <span>-78°C</span>
+                            <span>500°C</span>
+                        </div>
+                    </div>
+
+                    {/* Pressure Slider */}
+                    <div className="mb-4">
+                         <div className="flex justify-between text-xs mb-1">
+                            <span className="text-skin-muted flex items-center gap-1"><Gauge size={12}/> Pressure</span>
+                            <span className="font-mono font-bold text-skin-main">{reactionPressure} atm</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="1" max="100" step="1"
+                            value={reactionPressure}
+                            onChange={(e) => setReactionPressure(parseInt(e.target.value))}
+                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                         <div className="flex justify-between text-[10px] text-skin-muted mt-1">
+                            <span>1 atm</span>
+                            <span>100 atm</span>
+                        </div>
+                    </div>
+                    
+                    {/* Solvent & Catalyst */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-skin-muted uppercase block mb-1">Catalyst</label>
+                            <select 
+                                value={reactionCatalyst}
+                                onChange={(e) => setReactionCatalyst(e.target.value)}
+                                className="w-full text-xs p-2 rounded border border-skin-border bg-skin-base outline-none focus:border-amber-500"
+                            >
+                                <option value="">None</option>
+                                <option value="H2SO4">H₂SO₄ (Acid)</option>
+                                <option value="Pt">Platinum (Pt)</option>
+                                <option value="Pd/C">Pd/C</option>
+                                <option value="FeBr3">FeBr₃</option>
+                                <option value="AlCl3">AlCl₃</option>
+                                <option value="Light">UV Light (hv)</option>
+                                <option value="Peroxide">Peroxides</option>
+                            </select>
+                        </div>
+                         <div>
+                            <label className="text-[10px] font-bold text-skin-muted uppercase block mb-1">Solvent</label>
+                            <select 
+                                value={reactionSolvent}
+                                onChange={(e) => setReactionSolvent(e.target.value)}
+                                className="w-full text-xs p-2 rounded border border-skin-border bg-skin-base outline-none focus:border-amber-500"
+                            >
+                                <option value="Standard">Standard</option>
+                                <option value="Water">Water (H₂O)</option>
+                                <option value="Ethanol">Ethanol</option>
+                                <option value="Ether">Diethyl Ether</option>
+                                <option value="DCM">Dichloromethane</option>
+                                <option value="DMSO">DMSO (Polar Aprotic)</option>
+                                <option value="Acetone">Acetone</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-skin-border text-[10px] text-skin-muted italic">
+                        * Conditions affect equilibrium (Le Chatelier's) and kinetics.
+                    </div>
+                </div>
+            )}
         </form>
 
         {/* Save Button */}
@@ -570,14 +718,14 @@ const App = () => {
             onClick={handleSaveToArchive}
             disabled={!moleculeData}
             title="Save to Archive"
-            className="p-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="p-2.5 rounded-lg border border-skin-border text-skin-muted hover:bg-skin-base hover:text-skin-primary transition-all disabled:opacity-50 active:scale-95 ml-auto"
         >
             <Save size={20} />
         </button>
       </div>
 
       {/* Main Visualizer */}
-      <div className="flex-1 bg-slate-100 p-4 relative">
+      <div className="flex-1 bg-skin-base p-4 relative">
         <MoleculeVisualizer 
           data={moleculeData} 
           loading={loadingMolecule} 
@@ -588,42 +736,46 @@ const App = () => {
   );
 
   const renderArchive = () => (
-      <div className="p-8 h-full bg-slate-50 overflow-y-auto">
-          <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
-              <Archive className="text-blue-600" /> Saved Visualizations
+      <div className="p-8 h-full bg-skin-base overflow-y-auto animate-fade-in">
+          <h2 className="text-2xl font-bold text-skin-main mb-6 flex items-center gap-3">
+              <Archive className="text-skin-primary" /> Saved Visualizations
           </h2>
           
           {archive.length === 0 ? (
-              <div className="text-center py-20 opacity-50">
-                  <Save size={64} className="mx-auto mb-4" />
-                  <p className="text-xl">Your archive is empty.</p>
-                  <p>Generate and save molecules in the Visualizer!</p>
+              <div className="text-center py-20 opacity-50 animate-enter">
+                  <Save size={64} className="mx-auto mb-4 text-skin-muted" />
+                  <p className="text-xl text-skin-main">Your archive is empty.</p>
+                  <p className="text-skin-muted">Generate and save molecules in the Visualizer!</p>
               </div>
           ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {archive.map(item => (
-                      <div key={item.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
+                  {archive.map((item, idx) => (
+                      <div 
+                        key={item.id} 
+                        className="bg-skin-surface p-5 rounded-xl border border-skin-border shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all group animate-enter"
+                        style={{ animationDelay: `${idx * 50}ms` }}
+                      >
                           <div className="flex justify-between items-start mb-4">
-                              <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                              <div className="w-12 h-12 bg-skin-primary-light rounded-lg flex items-center justify-center text-skin-primary group-hover:scale-110 transition-transform">
                                   <Atom size={24} />
                               </div>
-                              <span className="text-xs text-slate-400 font-mono">
+                              <span className="text-xs text-skin-muted font-mono">
                                   {new Date(item.timestamp).toLocaleDateString()}
                               </span>
                           </div>
-                          <h3 className="font-bold text-slate-800 text-lg mb-1 truncate" title={item.name}>{item.name}</h3>
-                          <p className="text-xs text-slate-500 mb-4 line-clamp-2 h-8">{item.data.description}</p>
+                          <h3 className="font-bold text-skin-main text-lg mb-1 truncate" title={item.name}>{item.name}</h3>
+                          <p className="text-xs text-skin-muted mb-4 line-clamp-2 h-8">{item.data.description}</p>
                           
                           <div className="flex gap-2">
                               <button 
                                   onClick={() => loadFromArchive(item)}
-                                  className="flex-1 bg-slate-900 text-white py-2 rounded-lg text-sm font-bold hover:bg-slate-800 transition-colors"
+                                  className="flex-1 bg-skin-primary text-white py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-colors shadow-md shadow-skin-primary/20"
                               >
                                   Load
                               </button>
                               <button 
                                   onClick={() => setArchive(prev => prev.filter(i => i.id !== item.id))}
-                                  className="p-2 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  className="p-2 rounded-lg border border-skin-border text-skin-muted hover:text-red-500 hover:bg-red-50 transition-colors"
                               >
                                   <X size={16} />
                               </button>
@@ -636,55 +788,55 @@ const App = () => {
   );
 
   const renderReactionTutor = () => (
-    <div className="p-8 h-full overflow-y-auto">
+    <div className="p-8 h-full overflow-y-auto animate-fade-in">
        <div className="max-w-4xl mx-auto">
-        <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+        <h2 className="text-2xl font-bold text-skin-main mb-6 flex items-center gap-3">
             <Zap className="text-amber-500" /> Reaction Mechanism Tutor
         </h2>
         
-        <form onSubmit={handleReactionSearch} className="flex gap-2 mb-10">
+        <form onSubmit={handleReactionSearch} className="flex gap-2 mb-10 animate-slide-up">
             <input 
               type="text" 
               value={reactionInput}
               onChange={(e) => setReactionInput(e.target.value)}
               placeholder="Describe a reaction..."
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-sm"
+              className="flex-1 px-4 py-3 rounded-xl border border-skin-border bg-skin-surface focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-sm transition-all"
             />
             <button 
               type="submit" 
               disabled={loadingReaction}
-              className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-800 transition-colors shadow-lg disabled:opacity-50"
+              className="bg-skin-sidebar-bg text-white px-8 py-3 rounded-xl font-bold hover:bg-skin-sidebar-bg/90 transition-all hover:shadow-lg disabled:opacity-50 active:scale-95"
             >
                {loadingReaction ? 'Analyzing...' : 'Explain'}
             </button>
         </form>
 
         {loadingReaction && (
-            <div className="flex flex-col items-center py-20">
+            <div className="flex flex-col items-center py-20 animate-enter">
                 <div className="w-12 h-12 border-4 border-amber-200 border-t-amber-500 rounded-full animate-spin mb-4"></div>
-                <p className="text-slate-500 animate-pulse">Deconstructing mechanism steps...</p>
+                <p className="text-skin-muted animate-pulse">Deconstructing mechanism steps...</p>
             </div>
         )}
 
         {reactionData && !loadingReaction && (
-            <div className="space-y-6">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-8">
-                    <h3 className="text-xl font-bold text-slate-800">{reactionData.name}</h3>
-                    <p className="text-slate-500 mt-1">Step-by-step breakdown</p>
+            <div className="space-y-6 animate-slide-up">
+                <div className="bg-skin-surface p-6 rounded-xl border border-skin-border shadow-sm mb-8">
+                    <h3 className="text-xl font-bold text-skin-main">{reactionData.name}</h3>
+                    <p className="text-skin-muted mt-1">Step-by-step breakdown</p>
                 </div>
 
                 <div className="relative">
-                    <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-200"></div>
+                    <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-skin-border"></div>
                     {reactionData.steps.map((step, idx) => (
-                        <div key={idx} className="relative pl-20 mb-8 group">
-                            <div className="absolute left-0 w-16 h-16 rounded-full bg-white border-4 border-amber-100 text-amber-600 flex items-center justify-center font-bold text-xl z-10 shadow-sm group-hover:border-amber-500 transition-colors">
+                        <div key={idx} className="relative pl-20 mb-8 group animate-enter" style={{ animationDelay: `${idx * 150}ms` }}>
+                            <div className="absolute left-0 w-16 h-16 rounded-full bg-skin-surface border-4 border-amber-100 text-amber-600 flex items-center justify-center font-bold text-xl z-10 shadow-sm group-hover:border-amber-500 group-hover:scale-110 transition-all">
                                 {step.step}
                             </div>
-                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                            <div className="bg-skin-surface p-6 rounded-xl border border-skin-border shadow-sm hover:shadow-md hover:-translate-y-1 transition-all">
                                 <div className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-2">
                                     {step.keyConcept}
                                 </div>
-                                <p className="text-slate-700 leading-relaxed">
+                                <p className="text-skin-main leading-relaxed">
                                     {step.description}
                                 </p>
                             </div>
@@ -698,19 +850,19 @@ const App = () => {
   );
 
   const renderQuizArena = () => (
-    <div className="p-8 h-full flex flex-col items-center justify-center bg-slate-50 overflow-y-auto">
+    <div className="p-8 h-full flex flex-col items-center justify-center bg-skin-base overflow-y-auto animate-fade-in">
       {!quizData && !loadingQuiz && !quizCompleted && (
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-slate-100 text-center">
-          <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <BrainCircuit className="text-indigo-600 w-10 h-10" />
+        <div className="max-w-md w-full bg-skin-surface p-8 rounded-2xl shadow-xl border border-skin-border text-center animate-pop">
+          <div className="w-20 h-20 bg-skin-primary-light rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+            <BrainCircuit className="text-skin-primary w-10 h-10" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Knowledge Check</h2>
-          <p className="text-slate-500 mb-8">Select a topic to generate a personalized quiz using AI.</p>
+          <h2 className="text-2xl font-bold text-skin-main mb-2">Knowledge Check</h2>
+          <p className="text-skin-muted mb-8">Select a topic to generate a personalized quiz using AI.</p>
           
           <select 
             value={quizTopic} 
             onChange={(e) => setQuizTopic(e.target.value)}
-            className="w-full mb-4 px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="w-full mb-4 px-4 py-3 rounded-lg border border-skin-border bg-skin-base focus:ring-2 focus:ring-skin-primary outline-none transition-all"
           >
             <option>Stereochemistry</option>
             <option>Resonance Structures</option>
@@ -722,33 +874,33 @@ const App = () => {
 
           <button 
             onClick={() => startQuiz()}
-            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+            className="w-full bg-skin-primary text-white py-3 rounded-lg font-bold hover:brightness-110 transition-all shadow-lg shadow-skin-primary/30 active:scale-95"
           >
             Start Custom Quiz
           </button>
           
-          <div className="mt-6 text-xs text-slate-400 border-t pt-4">
+          <div className="mt-6 text-xs text-skin-muted border-t border-skin-border pt-4">
               Tip: Go to the Dashboard to take structured Module quizzes.
           </div>
         </div>
       )}
 
       {loadingQuiz && (
-         <div className="text-center">
-            <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-indigo-600 font-medium">Generating unique questions...</p>
+         <div className="text-center animate-enter">
+            <div className="w-16 h-16 border-4 border-skin-primary-light border-t-skin-primary rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-skin-primary font-medium">Generating unique questions...</p>
          </div>
       )}
 
       {quizData && !loadingQuiz && !quizCompleted && (
-        <div className="max-w-2xl w-full">
-            <div className="mb-6 flex justify-between items-center text-sm font-medium text-slate-500">
+        <div className="max-w-2xl w-full animate-slide-up">
+            <div className="mb-6 flex justify-between items-center text-sm font-medium text-skin-muted">
                 <span>Question {currentQuestionIdx + 1} of {quizData.questions.length}</span>
-                <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">Score: {quizScore}</span>
+                <span className="bg-skin-primary-light text-skin-primary px-3 py-1 rounded-full">Score: {quizScore}</span>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 mb-6">
-                <h3 className="text-xl font-bold text-slate-800 mb-6 leading-snug">
+            <div className="bg-skin-surface p-8 rounded-2xl shadow-lg border border-skin-border mb-6">
+                <h3 className="text-xl font-bold text-skin-main mb-6 leading-snug">
                     {quizData.questions[currentQuestionIdx].question}
                 </h3>
                 
@@ -758,19 +910,19 @@ const App = () => {
                             key={idx}
                             onClick={() => handleQuizAnswer(idx)}
                             disabled={showExplanation}
-                            className={`w-full text-left p-4 rounded-xl border transition-all flex justify-between items-center ${
+                            className={`w-full text-left p-4 rounded-xl border transition-all duration-200 flex justify-between items-center group ${
                                 showExplanation 
                                     ? idx === quizData.questions[currentQuestionIdx].correctAnswer 
                                         ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
                                         : idx === selectedOption
                                             ? 'bg-red-50 border-red-500 text-red-900'
-                                            : 'bg-slate-50 border-slate-200 text-slate-400'
-                                    : 'bg-white border-slate-200 hover:border-indigo-500 hover:shadow-md text-slate-700'
+                                            : 'bg-skin-base border-skin-border text-skin-muted opacity-50'
+                                    : 'bg-skin-surface border-skin-border hover:border-skin-primary hover:shadow-md text-skin-main hover:bg-skin-base'
                             }`}
                         >
-                            <span>{option}</span>
+                            <span className="group-hover:translate-x-1 transition-transform">{option}</span>
                             {showExplanation && idx === quizData.questions[currentQuestionIdx].correctAnswer && (
-                                <Award className="w-5 h-5 text-emerald-600" />
+                                <Award className="w-5 h-5 text-emerald-600 animate-pop" />
                             )}
                         </button>
                     ))}
@@ -778,17 +930,17 @@ const App = () => {
             </div>
 
             {showExplanation && (
-                <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 mb-6 animate-fade-in">
-                    <h4 className="font-bold text-indigo-900 mb-2">Explanation</h4>
-                    <p className="text-indigo-800">{quizData.questions[currentQuestionIdx].explanation}</p>
+                <div className="bg-skin-primary-light/30 p-6 rounded-xl border border-skin-primary-light mb-6 animate-enter">
+                    <h4 className="font-bold text-skin-primary-dark mb-2">Explanation</h4>
+                    <p className="text-skin-primary-dark opacity-90">{quizData.questions[currentQuestionIdx].explanation}</p>
                 </div>
             )}
 
             {showExplanation && (
-                <div className="flex justify-end">
+                <div className="flex justify-end animate-enter delay-100">
                      <button 
                         onClick={nextQuestion}
-                        className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-800 transition-colors flex items-center gap-2"
+                        className="bg-skin-sidebar-bg text-white px-8 py-3 rounded-xl font-bold hover:bg-skin-sidebar-bg/90 transition-all hover:shadow-lg flex items-center gap-2 active:scale-95"
                      >
                         {currentQuestionIdx === quizData.questions.length - 1 ? 'Finish' : 'Next Question'}
                         <ArrowRight size={18} />
@@ -799,13 +951,13 @@ const App = () => {
       )}
 
       {quizCompleted && (
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-slate-100 text-center">
-             <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <div className="max-w-md w-full bg-skin-surface p-8 rounded-2xl shadow-xl border border-skin-border text-center animate-pop">
+             <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
                 <Award className="text-yellow-600 w-12 h-12" />
              </div>
-             <h2 className="text-3xl font-bold text-slate-900 mb-2">Quiz Complete!</h2>
-             <p className="text-slate-500 mb-6">You scored</p>
-             <div className="text-5xl font-bold text-indigo-600 mb-8">
+             <h2 className="text-3xl font-bold text-skin-main mb-2">Quiz Complete!</h2>
+             <p className="text-skin-muted mb-6">You scored</p>
+             <div className="text-5xl font-bold text-skin-primary mb-8">
                 {Math.round((quizScore / (quizData?.questions.length || 1)) * 100)}%
              </div>
              {activeModuleId && (
@@ -821,7 +973,7 @@ const App = () => {
              )}
              <button 
                 onClick={() => { setQuizData(null); setQuizCompleted(false); setActiveModuleId(null); }}
-                className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-800 transition-colors w-full"
+                className="bg-skin-sidebar-bg text-white px-8 py-3 rounded-xl font-bold hover:bg-skin-sidebar-bg/90 transition-all shadow-lg w-full"
              >
                 Back to Menu
              </button>
@@ -831,59 +983,59 @@ const App = () => {
   );
 
   const renderChatTutor = () => (
-      <div className="flex flex-col h-full bg-white">
-          <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white z-10 shadow-sm">
-              <h2 className="text-lg font-bold flex items-center gap-2 text-slate-800">
-                  <MessageCircle className="text-blue-600" /> AI Tutor
+      <div className="flex flex-col h-full bg-skin-surface animate-fade-in">
+          <div className="p-4 border-b border-skin-border flex items-center justify-between bg-skin-surface z-10 shadow-sm">
+              <h2 className="text-lg font-bold flex items-center gap-2 text-skin-main">
+                  <MessageCircle className="text-skin-primary" /> AI Tutor
               </h2>
-              <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-medium">Gemini Powered</span>
+              <span className="text-xs bg-skin-primary-light text-skin-primary px-2 py-1 rounded-full font-medium">Gemini Powered</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-skin-base">
             {chatHistory.length === 0 && (
-                <div className="text-center py-10 text-slate-400">
-                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                         <MessageCircle className="w-8 h-8 text-blue-200" />
+                <div className="text-center py-10 text-skin-muted animate-enter">
+                    <div className="w-16 h-16 bg-skin-surface rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-skin-border">
+                         <MessageCircle className="w-8 h-8 text-skin-primary-light" />
                     </div>
                     <p>Ask me anything about Organic Chemistry!</p>
                     <p className="text-xs mt-2">e.g., "What is chirality?" or "Explain resonance in benzene."</p>
                 </div>
             )}
             {chatHistory.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up`}>
                     <div className={`max-w-[80%] p-4 rounded-2xl ${
                         msg.role === 'user' 
-                            ? 'bg-blue-600 text-white rounded-br-none' 
-                            : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'
+                            ? 'bg-skin-primary text-white rounded-br-none shadow-md' 
+                            : 'bg-skin-surface border border-skin-border text-skin-main rounded-bl-none shadow-sm'
                     }`}>
                         <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
                     </div>
                 </div>
             ))}
             {chatLoading && (
-                <div className="flex justify-start">
-                    <div className="bg-white border border-slate-200 p-4 rounded-2xl rounded-bl-none shadow-sm">
+                <div className="flex justify-start animate-enter">
+                    <div className="bg-skin-surface border border-skin-border p-4 rounded-2xl rounded-bl-none shadow-sm">
                         <div className="flex gap-1">
-                            <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
-                            <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-                            <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                            <div className="w-2 h-2 bg-skin-muted rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                            <div className="w-2 h-2 bg-skin-muted rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                            <div className="w-2 h-2 bg-skin-muted rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
                         </div>
                     </div>
                 </div>
             )}
             <div ref={chatEndRef} />
           </div>
-          <div className="p-4 bg-white border-t border-slate-200">
+          <div className="p-4 bg-skin-surface border-t border-skin-border">
               <form onSubmit={handleSendMessage} className="flex gap-2">
                   <input 
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Type your question..."
-                    className="flex-1 px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
+                    className="flex-1 px-4 py-3 rounded-xl border border-skin-border focus:ring-2 focus:ring-skin-primary outline-none bg-skin-base text-skin-main transition-all"
                   />
                   <button 
                     type="submit"
                     disabled={!chatInput.trim() || chatLoading}
-                    className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-skin-primary text-white p-3 rounded-xl hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-skin-primary/20 active:scale-95"
                   >
                       <ArrowRight />
                   </button>
@@ -895,34 +1047,61 @@ const App = () => {
   // --- Main Layout ---
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-skin-base overflow-hidden transition-colors duration-500">
       {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'w-72' : 'w-20'} bg-slate-900 text-slate-300 transition-all duration-300 flex flex-col border-r border-slate-800 z-50`}>
+      <div className={`${sidebarOpen ? 'w-72' : 'w-20'} bg-skin-sidebar-bg text-skin-sidebar-text transition-all duration-500 ease-in-out flex flex-col border-r border-skin-border z-50 shadow-2xl`}>
         <div className="p-6 flex items-center justify-between">
           {sidebarOpen && (
-             <div className="flex items-center gap-2 font-bold text-white text-xl tracking-tight">
-                <Atom className="text-blue-500" /> Carbon<span className="text-slate-400">Canvas</span>
+             <div className="flex items-center gap-2 font-bold text-white text-xl tracking-tight animate-enter">
+                <Atom className="text-skin-primary" /> Carbon<span className="opacity-50">Canvas</span>
              </div>
           )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white">
             <Menu size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-2 mt-4">
-          <NavItem view={AppView.DASHBOARD} current={view} icon={BookOpen} label={sidebarOpen && "Dashboard"} onClick={setView} />
-          <NavItem view={AppView.MOLECULE_VIEWER} current={view} icon={Atom} label={sidebarOpen && "3D Visualizer"} onClick={setView} />
-          <NavItem view={AppView.ARCHIVE} current={view} icon={Archive} label={sidebarOpen && "Archive"} onClick={setView} />
-          <NavItem view={AppView.REACTION_TUTOR} current={view} icon={Beaker} label={sidebarOpen && "Reactions"} onClick={setView} />
-          <NavItem view={AppView.QUIZ_ARENA} current={view} icon={BrainCircuit} label={sidebarOpen && "Quiz Arena"} onClick={setView} />
-          <NavItem view={AppView.CHAT_TUTOR} current={view} icon={MessageCircle} label={sidebarOpen && "AI Tutor"} onClick={setView} />
+        <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto scrollbar-hide">
+          <NavItem view={AppView.DASHBOARD} current={view} icon={BookOpen} label={sidebarOpen && "Dashboard"} onClick={setView} delay={100} />
+          <NavItem view={AppView.MOLECULE_VIEWER} current={view} icon={Atom} label={sidebarOpen && "3D Visualizer"} onClick={setView} delay={150} />
+          <NavItem view={AppView.ARCHIVE} current={view} icon={Archive} label={sidebarOpen && "Archive"} onClick={setView} delay={200} />
+          <NavItem view={AppView.REACTION_TUTOR} current={view} icon={Beaker} label={sidebarOpen && "Reactions"} onClick={setView} delay={250} />
+          <NavItem view={AppView.QUIZ_ARENA} current={view} icon={BrainCircuit} label={sidebarOpen && "Quiz Arena"} onClick={setView} delay={300} />
+          <NavItem view={AppView.CHAT_TUTOR} current={view} icon={MessageCircle} label={sidebarOpen && "AI Tutor"} onClick={setView} delay={350} />
         </nav>
 
-        <div className="p-4">
-            <div className={`bg-slate-800/50 rounded-xl p-4 border border-slate-700 ${!sidebarOpen && 'hidden'}`}>
-                <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Status</h4>
-                <div className="flex items-center gap-2 text-sm text-green-400">
-                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+        {/* Theme Selector & Status */}
+        <div className="p-4 border-t border-white/10 space-y-4">
+            {sidebarOpen && (
+              <div className="relative">
+                <button 
+                  onClick={() => setThemeMenuOpen(!themeMenuOpen)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-white group"
+                >
+                  <Palette size={18} className="text-skin-primary group-hover:rotate-12 transition-transform" />
+                  <span className="font-medium text-sm">Theme</span>
+                  <ChevronUp size={16} className={`ml-auto transition-transform ${themeMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <div className={`absolute bottom-full left-0 w-full mb-2 bg-skin-surface border border-skin-border rounded-xl shadow-xl overflow-hidden transition-all duration-300 origin-bottom ${themeMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                   {THEMES.map(theme => (
+                     <button
+                        key={theme.id}
+                        onClick={() => { setCurrentTheme(theme.id); setThemeMenuOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-skin-base transition-colors ${currentTheme === theme.id ? 'bg-skin-primary-light text-skin-primary-dark' : 'text-skin-main'}`}
+                     >
+                        <div className={`w-4 h-4 rounded-full ${theme.color}`}></div>
+                        <span className="text-sm font-medium">{theme.name}</span>
+                     </button>
+                   ))}
+                </div>
+              </div>
+            )}
+
+            <div className={`bg-black/20 rounded-xl p-4 border border-white/5 ${!sidebarOpen && 'hidden'} animate-enter delay-500`}>
+                <h4 className="text-xs font-bold text-white/40 uppercase mb-2">Status</h4>
+                <div className="flex items-center gap-2 text-sm text-emerald-400">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                     Online & Ready
                 </div>
             </div>
@@ -930,7 +1109,7 @@ const App = () => {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 relative overflow-hidden">
+      <main className="flex-1 relative overflow-hidden bg-skin-base transition-colors duration-500">
         {view === AppView.DASHBOARD && renderDashboard()}
         {view === AppView.MOLECULE_VIEWER && renderMoleculeViewer()}
         {view === AppView.ARCHIVE && renderArchive()}
