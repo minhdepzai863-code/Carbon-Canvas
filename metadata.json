@@ -1,0 +1,5 @@
+{
+  "name": "CarbonCanvas",
+  "description": "An interactive Organic Chemistry learning platform featuring AI-generated molecular visualizations, gamified quizzes, and reaction mechanism tutors.",
+  "requestFramePermissions": []
+}
