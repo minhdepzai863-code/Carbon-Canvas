@@ -1,6 +1,18 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import * as d3 from 'd3';
+import { 
+  select, 
+  zoom, 
+  zoomIdentity, 
+  forceSimulation, 
+  forceLink, 
+  forceManyBody, 
+  forceCenter, 
+  forceCollide, 
+  drag, 
+  pointer, 
+  ZoomBehavior 
+} from 'd3';
 import { MoleculeData, Atom, Bond } from '../types';
 import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Grid3X3, RefreshCw, Info } from 'lucide-react';
 
@@ -105,7 +117,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<any>(null);
   const nodesRef = useRef<any[]>([]); 
-  const transformRef = useRef(d3.zoomIdentity); 
+  const transformRef = useRef(zoomIdentity); 
   
   // Local state for editing
   const [localData, setLocalData] = useState<MoleculeData | null>(null);
@@ -140,7 +152,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       setErrorMsg(null);
       setErrorAtomIds(new Set());
       setResonanceIndex(-1);
-      transformRef.current = d3.zoomIdentity; 
+      transformRef.current = zoomIdentity; 
     }
   }, [data]);
 
@@ -406,9 +418,9 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
 
-    d3.select(svgRef.current).selectAll("*").remove();
+    select(svgRef.current).selectAll("*").remove();
 
-    const svg = d3.select(svgRef.current)
+    const svg = select(svgRef.current)
       .attr("viewBox", [0, 0, width, height])
       .attr("style", "max-width: 100%; height: auto; user-select: none;");
 
@@ -434,7 +446,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
 
     const g = svg.append("g").attr("class", "zoom-layer");
 
-    const zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> = d3.zoom<SVGSVGElement, unknown>()
+    const zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> = zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
@@ -454,18 +466,18 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
         .on("click", (event) => {
             const m = modeRef.current;
             if (m === 'add-atom') {
-                const [screenX, screenY] = d3.pointer(event, svg.node()); 
+                const [screenX, screenY] = pointer(event, svg.node()); 
                 handleAddAtom(screenX, screenY);
             } else {
                 setSelectedAtomId(null); 
             }
         });
 
-    const sim = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(60))
-      .force("charge", d3.forceManyBody().strength(-200))
-      .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05))
-      .force("collide", d3.forceCollide().radius((d: any) => getElementData(d.element).radius + 5))
+    const sim = forceSimulation(nodes)
+      .force("link", forceLink(links).id((d: any) => d.id).distance(60))
+      .force("charge", forceManyBody().strength(-200))
+      .force("center", forceCenter(width / 2, height / 2).strength(0.05))
+      .force("collide", forceCollide().radius((d: any) => getElementData(d.element).radius + 5))
       .alphaDecay(0.02)
       .alpha(0.5); 
 
@@ -509,11 +521,11 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       })
       .on("mouseenter", function(event, d: any) {
           if (modeRef.current === 'break-bond') {
-              d3.select(this).select(".bond-highlight")
+              select(this).select(".bond-highlight")
                 .attr("stroke", "#ef4444")
                 .attr("opacity", 0.6);
           } else if (modeRef.current === 'add-bond') {
-              d3.select(this).select(".bond-highlight")
+              select(this).select(".bond-highlight")
                 .attr("stroke", "#3b82f6")
                 .attr("opacity", 0.6)
                 .attr("cursor", "pointer");
@@ -541,7 +553,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                   });
               }
           } else if (modeRef.current === 'edit-stereo') {
-              d3.select(this).select(".bond-highlight")
+              select(this).select(".bond-highlight")
                 .attr("stroke", "#818cf8") // Indigo
                 .attr("opacity", 0.6)
                 .attr("cursor", "pointer");
@@ -549,7 +561,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       })
       .on("mouseleave", function() {
            setTooltip(null);
-           d3.select(this).select(".bond-highlight")
+           select(this).select(".bond-highlight")
             .attr("stroke", "transparent")
             .attr("opacity", 0);
       });
@@ -587,7 +599,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       .data(nodes)
       .join("g")
       .attr("class", "node-wrapper")
-      .call(d3.drag<any, any>()
+      .call(drag<any, any>()
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended)
@@ -609,7 +621,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       })
       .on("mouseenter", function(event, d: any) {
           const m = modeRef.current;
-          const group = d3.select(this);
+          const group = select(this);
 
           if (m === 'view') {
               setTooltip({ x: event.pageX, y: event.pageY, atom: d });
@@ -647,7 +659,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       .on("mouseleave", function(event, d: any) {
           setTooltip(null);
           const m = modeRef.current;
-          const group = d3.select(this);
+          const group = select(this);
 
           if (m === 'add-bond') {
                group.select(".atom-main")
@@ -790,11 +802,11 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   // Effect for visual error handling (flashing red)
   useEffect(() => {
     if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+    const svg = select(svgRef.current);
     
     svg.selectAll(".node-wrapper").each(function(d: any) {
         const isError = errorAtomIds.has(d.id);
-        const group = d3.select(this);
+        const group = select(this);
         const circle = group.select(".atom-main");
         const elData = getElementData(d.element);
 
@@ -814,7 +826,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
 
   useEffect(() => {
       if (!svgRef.current) return;
-      const svg = d3.select(svgRef.current);
+      const svg = select(svgRef.current);
       svg.selectAll(".node-wrapper")
          .attr("cursor", mode === 'add-bond' ? 'pointer' : mode === 'view' ? 'grab' : 'default');
       
