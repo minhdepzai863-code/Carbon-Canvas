@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Atom, Beaker, BookOpen, BrainCircuit, Menu, MessageCircle, X, 
-  ChevronRight, Star, Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer
+  Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer
 } from 'lucide-react';
 import { AppView, MoleculeData, QuizData, ReactionData, ArchiveItem, Module, UserStats } from './types';
 import * as gemini from './services/geminiService';
@@ -403,7 +404,7 @@ const App = () => {
                     </span>
                 </div>
                 <div className="space-y-4">
-                    {displayedModules.map((module, idx) => (
+                    {displayedModules.map((module) => (
                         <div key={module.id} className={`p-4 rounded-xl border transition-all ${
                             module.status === 'locked' ? 'bg-slate-50 border-slate-100 opacity-70' : 
                             module.status === 'active' ? 'bg-white border-blue-200 shadow-sm ring-1 ring-blue-100' :

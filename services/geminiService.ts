@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { MoleculeData, QuizData, ReactionData, Atom, Bond } from '../types';
+import { MoleculeData, QuizData, ReactionData } from '../types';
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
