@@ -1,8 +1,7 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { MoleculeData, Atom, Bond } from '../types';
-import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Grid3X3, RefreshCw, Info, Ruler } from 'lucide-react';
+import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Ruler, RefreshCw, Info, Grid3X3, X, Trash2, Droplets, Stamp, Camera, Ghost } from 'lucide-react';
 
 interface MoleculeVisualizerProps {
   data: MoleculeData | null;
@@ -10,7 +9,7 @@ interface MoleculeVisualizerProps {
   onAnalyze?: (data: MoleculeData) => void;
 }
 
-type EditMode = 'view' | 'add-bond' | 'break-bond' | 'add-atom' | 'edit-stereo' | 'measure-angle';
+type EditMode = 'view' | 'add-bond' | 'break-bond' | 'add-atom' | 'edit-stereo' | 'measure-angle' | 'delete-atom' | 'add-hydroxyl' | 'stamp';
 
 interface TooltipState {
     x: number;
@@ -24,7 +23,7 @@ interface TooltipState {
     };
 }
 
-// Comprehensive Periodic Table Data (CPK Colors)
+// Comprehensive Periodic Table Data (CPK Colors) with Grid Positions (Standard 18-col layout)
 const PERIODIC_TABLE: Record<string, { 
     color: string, 
     radius: number, 
@@ -33,72 +32,147 @@ const PERIODIC_TABLE: Record<string, {
     maxBonds: number,
     atomicNumber: number,
     mass: number,
-    oxidationStates: string
+    oxidationStates: string,
+    row: number,
+    col: number
 }> = {
   // Non-metals
-  H:  { color: '#FFFFFF', radius: 12, name: 'Hydrogen', description: 'Lightest element, essential for hydrocarbons.', maxBonds: 1, atomicNumber: 1, mass: 1.008, oxidationStates: "+1, -1" },
-  C:  { color: '#334155', radius: 20, name: 'Carbon', description: 'Backbone of organic chemistry.', maxBonds: 4, atomicNumber: 6, mass: 12.011, oxidationStates: "+4, +2, -4" },
-  N:  { color: '#3b82f6', radius: 20, name: 'Nitrogen', description: 'Essential for amino acids and DNA.', maxBonds: 4, atomicNumber: 7, mass: 14.007, oxidationStates: "+5, +3, -3" }, // Can be 4 with charge
-  O:  { color: '#ef4444', radius: 20, name: 'Oxygen', description: 'Highly electronegative, supports combustion.', maxBonds: 3, atomicNumber: 8, mass: 15.999, oxidationStates: "-2" }, // Can be 3 with charge
-  P:  { color: '#f97316', radius: 22, name: 'Phosphorus', description: 'Key in ATP and DNA backbones.', maxBonds: 5, atomicNumber: 15, mass: 30.974, oxidationStates: "+5, +3, -3" },
-  S:  { color: '#eab308', radius: 22, name: 'Sulfur', description: 'Forms disulfide bridges in proteins.', maxBonds: 6, atomicNumber: 16, mass: 32.06, oxidationStates: "+6, +4, -2" },
-  SE: { color: '#ffa100', radius: 22, name: 'Selenium', description: 'Trace element, similar to Sulfur.', maxBonds: 6, atomicNumber: 34, mass: 78.96, oxidationStates: "+6, +4, -2" },
+  H:  { color: '#FFFFFF', radius: 14, name: 'Hydrogen', description: 'Lightest element.', maxBonds: 1, atomicNumber: 1, mass: 1.008, oxidationStates: "+1, -1", row: 1, col: 1 },
+  C:  { color: '#404040', radius: 22, name: 'Carbon', description: 'Organic backbone.', maxBonds: 4, atomicNumber: 6, mass: 12.011, oxidationStates: "+4, +2, -4", row: 2, col: 14 },
+  N:  { color: '#3050F8', radius: 22, name: 'Nitrogen', description: 'Amino acids/DNA.', maxBonds: 4, atomicNumber: 7, mass: 14.007, oxidationStates: "+5, +3, -3", row: 2, col: 15 },
+  O:  { color: '#FF0D0D', radius: 22, name: 'Oxygen', description: 'Combustion/Respiration.', maxBonds: 2, atomicNumber: 8, mass: 15.999, oxidationStates: "-2", row: 2, col: 16 },
+  P:  { color: '#FF8000', radius: 24, name: 'Phosphorus', description: 'ATP/DNA backbone.', maxBonds: 5, atomicNumber: 15, mass: 30.974, oxidationStates: "+5, +3, -3", row: 3, col: 15 },
+  S:  { color: '#FFFF30', radius: 24, name: 'Sulfur', description: 'Disulfide bridges.', maxBonds: 6, atomicNumber: 16, mass: 32.06, oxidationStates: "+6, +4, -2", row: 3, col: 16 },
+  SE: { color: '#ffa100', radius: 24, name: 'Selenium', description: 'Trace element.', maxBonds: 6, atomicNumber: 34, mass: 78.96, oxidationStates: "+6, +4, -2", row: 4, col: 16 },
   
   // Halogens
-  F:  { color: '#22c55e', radius: 18, name: 'Fluorine', description: 'Most electronegative element.', maxBonds: 1, atomicNumber: 9, mass: 18.998, oxidationStates: "-1" },
-  CL: { color: '#10b981', radius: 20, name: 'Chlorine', description: 'Common in salts and industrial chemicals.', maxBonds: 1, atomicNumber: 17, mass: 35.45, oxidationStates: "-1, +1, +3, +5, +7" }, // Usually 1 in organics
-  BR: { color: '#7f1d1d', radius: 20, name: 'Bromine', description: 'Liquid at room temperature.', maxBonds: 1, atomicNumber: 35, mass: 79.904, oxidationStates: "-1, +1, +3, +4, +5" },
-  I:  { color: '#7e22ce', radius: 20, name: 'Iodine', description: 'Essential for thyroid function.', maxBonds: 1, atomicNumber: 53, mass: 126.90, oxidationStates: "-1, +1, +3, +5, +7" }, // Can be hypervalent but rare in basics
+  F:  { color: '#90E050', radius: 20, name: 'Fluorine', description: 'Most electronegative.', maxBonds: 1, atomicNumber: 9, mass: 18.998, oxidationStates: "-1", row: 2, col: 17 },
+  CL: { color: '#1FF01F', radius: 22, name: 'Chlorine', description: 'Salt former.', maxBonds: 1, atomicNumber: 17, mass: 35.45, oxidationStates: "-1...", row: 3, col: 17 },
+  BR: { color: '#A62929', radius: 22, name: 'Bromine', description: 'Liquid halogen.', maxBonds: 1, atomicNumber: 35, mass: 79.904, oxidationStates: "-1...", row: 4, col: 17 },
+  I:  { color: '#940094', radius: 22, name: 'Iodine', description: 'Thyroid function.', maxBonds: 1, atomicNumber: 53, mass: 126.90, oxidationStates: "-1...", row: 5, col: 17 },
   
   // Noble Gases
-  HE: { color: '#d9ffff', radius: 14, name: 'Helium', description: 'Inert gas, low density.', maxBonds: 0, atomicNumber: 2, mass: 4.0026, oxidationStates: "0" },
-  NE: { color: '#b3e3f5', radius: 16, name: 'Neon', description: 'Used in neon signs.', maxBonds: 0, atomicNumber: 10, mass: 20.180, oxidationStates: "0" },
-  AR: { color: '#80d1e3', radius: 20, name: 'Argon', description: 'Common inert atmosphere gas.', maxBonds: 0, atomicNumber: 18, mass: 39.948, oxidationStates: "0" },
-  XE: { color: '#42ba94', radius: 22, name: 'Xenon', description: 'Heavy noble gas, forms some compounds.', maxBonds: 6, atomicNumber: 54, mass: 131.29, oxidationStates: "0, +2, +4, +6, +8" },
+  HE: { color: '#d9ffff', radius: 16, name: 'Helium', description: 'Inert gas.', maxBonds: 0, atomicNumber: 2, mass: 4.0026, oxidationStates: "0", row: 1, col: 18 },
+  NE: { color: '#b3e3f5', radius: 18, name: 'Neon', description: 'Inert gas.', maxBonds: 0, atomicNumber: 10, mass: 20.180, oxidationStates: "0", row: 2, col: 18 },
+  AR: { color: '#80d1e3', radius: 22, name: 'Argon', description: 'Inert gas.', maxBonds: 0, atomicNumber: 18, mass: 39.948, oxidationStates: "0", row: 3, col: 18 },
+  
+  // Alkali / Alkali Earth
+  LI: { color: '#CC80FF', radius: 24, name: 'Lithium', description: 'Batteries.', maxBonds: 1, atomicNumber: 3, mass: 6.94, oxidationStates: "+1", row: 2, col: 1 },
+  NA: { color: '#AB5CF2', radius: 26, name: 'Sodium', description: 'Reactive metal.', maxBonds: 1, atomicNumber: 11, mass: 22.990, oxidationStates: "+1", row: 3, col: 1 },
+  K:  { color: '#8F40D4', radius: 28, name: 'Potassium', description: 'Electrolyte.', maxBonds: 1, atomicNumber: 19, mass: 39.098, oxidationStates: "+1", row: 4, col: 1 },
+  MG: { color: '#8AFF00', radius: 26, name: 'Magnesium', description: 'Chlorophyll.', maxBonds: 2, atomicNumber: 12, mass: 24.305, oxidationStates: "+2", row: 3, col: 2 },
+  CA: { color: '#3DFF00', radius: 28, name: 'Calcium', description: 'Bones.', maxBonds: 2, atomicNumber: 20, mass: 40.078, oxidationStates: "+2", row: 4, col: 2 },
+  
+  // Transition Metals
+  V:  { color: '#A6A6AB', radius: 26, name: 'Vanadium', description: 'Hard steel.', maxBonds: 5, atomicNumber: 23, mass: 50.94, oxidationStates: "Multi", row: 4, col: 5 },
+  CR: { color: '#8A99C7', radius: 26, name: 'Chromium', description: 'Stainless steel.', maxBonds: 6, atomicNumber: 24, mass: 51.996, oxidationStates: "+6, +3", row: 4, col: 6 },
+  MN: { color: '#9C7AC7', radius: 26, name: 'Manganese', description: 'Trace metal.', maxBonds: 7, atomicNumber: 25, mass: 54.938, oxidationStates: "+7, +4", row: 4, col: 7 },
+  FE: { color: '#E06633', radius: 26, name: 'Iron', description: 'Hemoglobin.', maxBonds: 6, atomicNumber: 26, mass: 55.845, oxidationStates: "+3, +2", row: 4, col: 8 },
+  CO: { color: '#F090A0', radius: 26, name: 'Cobalt', description: 'Vit B12.', maxBonds: 6, atomicNumber: 27, mass: 58.933, oxidationStates: "+3, +2", row: 4, col: 9 },
+  NI: { color: '#50D050', radius: 26, name: 'Nickel', description: 'Coins.', maxBonds: 4, atomicNumber: 28, mass: 58.693, oxidationStates: "+2", row: 4, col: 10 },
+  CU: { color: '#C88033', radius: 26, name: 'Copper', description: 'Conductor.', maxBonds: 4, atomicNumber: 29, mass: 63.546, oxidationStates: "+2, +1", row: 4, col: 11 },
+  ZN: { color: '#7D80B0', radius: 26, name: 'Zinc', description: 'Enzymes.', maxBonds: 4, atomicNumber: 30, mass: 65.38, oxidationStates: "+2", row: 4, col: 12 },
+  PD: { color: '#006985', radius: 28, name: 'Palladium', description: 'Catalyst.', maxBonds: 4, atomicNumber: 46, mass: 106.42, oxidationStates: "+2, +4", row: 5, col: 10 },
+  PT: { color: '#D0D0E0', radius: 28, name: 'Platinum', description: 'Catalyst.', maxBonds: 4, atomicNumber: 78, mass: 195.08, oxidationStates: "+2, +4", row: 6, col: 10 },
 
-  // Alkali / Alkaline Earth
-  LI: { color: '#cc80ff', radius: 22, name: 'Lithium', description: 'Used in batteries.', maxBonds: 1, atomicNumber: 3, mass: 6.94, oxidationStates: "+1" },
-  NA: { color: '#ab5cf2', radius: 24, name: 'Sodium', description: 'Highly reactive metal.', maxBonds: 1, atomicNumber: 11, mass: 22.990, oxidationStates: "+1" },
-  K:  { color: '#8f40d4', radius: 26, name: 'Potassium', description: 'Essential electrolyte.', maxBonds: 1, atomicNumber: 19, mass: 39.098, oxidationStates: "+1" },
-  MG: { color: '#8aff00', radius: 24, name: 'Magnesium', description: 'Central atom in chlorophyll.', maxBonds: 2, atomicNumber: 12, mass: 24.305, oxidationStates: "+2" },
-  CA: { color: '#3dff00', radius: 26, name: 'Calcium', description: 'Essential for bones and signaling.', maxBonds: 2, atomicNumber: 20, mass: 40.078, oxidationStates: "+2" },
-  
-  // Metals / Transition Metals
-  AL: { color: '#bfa6a6', radius: 24, name: 'Aluminium', description: 'Lightweight metal.', maxBonds: 3, atomicNumber: 13, mass: 26.982, oxidationStates: "+3" },
-  FE: { color: '#e06633', radius: 24, name: 'Iron', description: 'Essential for hemoglobin.', maxBonds: 6, atomicNumber: 26, mass: 55.845, oxidationStates: "+2, +3" },
-  ZN: { color: '#7d80b0', radius: 24, name: 'Zinc', description: 'Important cofactor for enzymes.', maxBonds: 4, atomicNumber: 30, mass: 65.38, oxidationStates: "+2" },
-  CU: { color: '#c88033', radius: 24, name: 'Copper', description: 'Excellent conductor.', maxBonds: 4, atomicNumber: 29, mass: 63.546, oxidationStates: "+1, +2" },
-  AG: { color: '#c0c0c0', radius: 24, name: 'Silver', description: 'Highest electrical conductivity.', maxBonds: 2, atomicNumber: 47, mass: 107.87, oxidationStates: "+1" },
-  AU: { color: '#ffd700', radius: 24, name: 'Gold', description: 'Resistant to corrosion.', maxBonds: 2, atomicNumber: 79, mass: 196.97, oxidationStates: "+1, +3" },
-  HG: { color: '#b6b6b8', radius: 24, name: 'Mercury', description: 'Liquid metal.', maxBonds: 2, atomicNumber: 80, mass: 200.59, oxidationStates: "+1, +2" },
-  PB: { color: '#575961', radius: 24, name: 'Lead', description: 'Dense, soft metal.', maxBonds: 4, atomicNumber: 82, mass: 207.2, oxidationStates: "+2, +4" },
-  TI: { color: '#bfc2c7', radius: 24, name: 'Titanium', description: 'Strong, lightweight, biocompatible.', maxBonds: 4, atomicNumber: 22, mass: 47.867, oxidationStates: "+2, +3, +4" },
-  SI: { color: '#f0c8a0', radius: 22, name: 'Silicon', description: 'Basis of semiconductors.', maxBonds: 4, atomicNumber: 14, mass: 28.085, oxidationStates: "+4, -4" },
-  B:  { color: '#ffb5b5', radius: 20, name: 'Boron', description: 'Metalloid, electron deficient.', maxBonds: 3, atomicNumber: 5, mass: 10.81, oxidationStates: "+3" },
-  
-  // Extended Metals
-  V:  { color: '#a6a6ab', radius: 23, name: 'Vanadium', description: 'Hard, grey, silvery metal.', maxBonds: 5, atomicNumber: 23, mass: 50.942, oxidationStates: "+2, +3, +4, +5" },
-  CR: { color: '#8a99c7', radius: 23, name: 'Chromium', description: 'Used in stainless steel and plating.', maxBonds: 6, atomicNumber: 24, mass: 51.996, oxidationStates: "+2, +3, +6" },
-  MN: { color: '#9c7ac7', radius: 23, name: 'Manganese', description: 'Found in many enzymes.', maxBonds: 7, atomicNumber: 25, mass: 54.938, oxidationStates: "+2, +3, +4, +6, +7" },
-  CO: { color: '#f090a0', radius: 23, name: 'Cobalt', description: 'Key component of Vitamin B12.', maxBonds: 6, atomicNumber: 27, mass: 58.933, oxidationStates: "+2, +3" },
-  NI: { color: '#50d050', radius: 23, name: 'Nickel', description: 'Corrosion-resistant metal.', maxBonds: 4, atomicNumber: 28, mass: 58.693, oxidationStates: "+2, +3" },
-  PD: { color: '#006985', radius: 24, name: 'Palladium', description: 'Crucial catalyst (hydrogenation/coupling).', maxBonds: 4, atomicNumber: 46, mass: 106.42, oxidationStates: "+2, +4" },
-  PT: { color: '#d0d0e0', radius: 24, name: 'Platinum', description: 'Dense, malleable, unreactive metal.', maxBonds: 6, atomicNumber: 78, mass: 195.08, oxidationStates: "+2, +4" },
-  
-  // Metalloids/Post-transition
-  AS: { color: '#bd80e3', radius: 22, name: 'Arsenic', description: 'Metalloid, toxic in inorganic forms.', maxBonds: 5, atomicNumber: 33, mass: 74.922, oxidationStates: "+3, +5, -3" },
-  SN: { color: '#668080', radius: 24, name: 'Tin', description: 'Used in solder and plating.', maxBonds: 4, atomicNumber: 50, mass: 118.71, oxidationStates: "+2, +4" },
-  SB: { color: '#9e80b0', radius: 24, name: 'Antimony', description: 'Lustrous gray metalloid.', maxBonds: 5, atomicNumber: 51, mass: 121.76, oxidationStates: "+3, +5, -3" },
+  // Metalloids / Poor Metals
+  AL: { color: '#BFA6A6', radius: 26, name: 'Aluminium', description: 'Light metal.', maxBonds: 3, atomicNumber: 13, mass: 26.982, oxidationStates: "+3", row: 3, col: 13 },
+  SI: { color: '#F0C8A0', radius: 24, name: 'Silicon', description: 'Semiconductor.', maxBonds: 4, atomicNumber: 14, mass: 28.085, oxidationStates: "+4, -4", row: 3, col: 14 },
+  B:  { color: '#FFB5B5', radius: 22, name: 'Boron', description: 'Electron deficient.', maxBonds: 3, atomicNumber: 5, mass: 10.81, oxidationStates: "+3", row: 2, col: 13 },
+  AS: { color: '#BD80E3', radius: 24, name: 'Arsenic', description: 'Toxic.', maxBonds: 5, atomicNumber: 33, mass: 74.92, oxidationStates: "+5...", row: 4, col: 15 },
+  SN: { color: '#668080', radius: 28, name: 'Tin', description: 'Metal.', maxBonds: 4, atomicNumber: 50, mass: 118.71, oxidationStates: "+4, +2", row: 5, col: 14 },
+  SB: { color: '#9E63B5', radius: 28, name: 'Antimony', description: 'Metalloid.', maxBonds: 5, atomicNumber: 51, mass: 121.76, oxidationStates: "+5...", row: 5, col: 15 },
 
-  // Default fallback
-  UNKNOWN: { color: '#cbd5e1', radius: 20, name: 'Unknown', description: 'Element not in database.', maxBonds: 4, atomicNumber: 0, mass: 0, oxidationStates: "N/A" }
+  // Default
+  UNKNOWN: { color: '#FF1493', radius: 20, name: 'Unknown', description: '?', maxBonds: 4, atomicNumber: 0, mass: 0, oxidationStates: "N/A", row: 0, col: 0 }
+};
+
+// Templates Definition
+const TEMPLATES: Record<string, { name: string, atoms: {element: string, dx: number, dy: number}[], bonds: {s: number, t: number, order: number}[] }> = {
+    'benzene': {
+        name: 'Benzene',
+        atoms: [
+            { element: 'C', dx: 0, dy: -40 }, { element: 'C', dx: 35, dy: -20 },
+            { element: 'C', dx: 35, dy: 20 }, { element: 'C', dx: 0, dy: 40 },
+            { element: 'C', dx: -35, dy: 20 }, { element: 'C', dx: -35, dy: -20 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 2 }, { s: 1, t: 2, order: 1 },
+            { s: 2, t: 3, order: 2 }, { s: 3, t: 4, order: 1 },
+            { s: 4, t: 5, order: 2 }, { s: 5, t: 0, order: 1 }
+        ]
+    },
+    'cyclohexane': {
+        name: 'Cyclohexane',
+        atoms: [
+            { element: 'C', dx: 0, dy: -40 }, { element: 'C', dx: 35, dy: -20 },
+            { element: 'C', dx: 35, dy: 20 }, { element: 'C', dx: 0, dy: 40 },
+            { element: 'C', dx: -35, dy: 20 }, { element: 'C', dx: -35, dy: -20 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 1 }, { s: 1, t: 2, order: 1 },
+            { s: 2, t: 3, order: 1 }, { s: 3, t: 4, order: 1 },
+            { s: 4, t: 5, order: 1 }, { s: 5, t: 0, order: 1 }
+        ]
+    },
+    'cyclopentane': {
+        name: 'Cyclopentane',
+        atoms: [
+            { element: 'C', dx: 0, dy: -35 }, { element: 'C', dx: 33, dy: -10 },
+            { element: 'C', dx: 20, dy: 30 }, { element: 'C', dx: -20, dy: 30 },
+            { element: 'C', dx: -33, dy: -10 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 1 }, { s: 1, t: 2, order: 1 },
+            { s: 2, t: 3, order: 1 }, { s: 3, t: 4, order: 1 },
+            { s: 4, t: 0, order: 1 }
+        ]
+    },
+    'carboxyl': {
+        name: 'Carboxyl (-COOH)',
+        atoms: [
+            { element: 'C', dx: 0, dy: 0 },
+            { element: 'O', dx: 25, dy: -25 },
+            { element: 'O', dx: 25, dy: 25 },
+            { element: 'H', dx: 45, dy: 25 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 2 },
+            { s: 0, t: 2, order: 1 },
+            { s: 2, t: 3, order: 1 }
+        ]
+    },
+    'nitro': {
+        name: 'Nitro (-NO2)',
+        atoms: [
+            { element: 'N', dx: 0, dy: 0 },
+            { element: 'O', dx: 25, dy: -20 },
+            { element: 'O', dx: 25, dy: 20 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 2 },
+            { s: 0, t: 2, order: 1 }
+        ]
+    },
+    'methyl': {
+        name: 'Methyl (-CH3)',
+        atoms: [
+            { element: 'C', dx: 0, dy: 0 },
+            { element: 'H', dx: 20, dy: -15 },
+            { element: 'H', dx: 20, dy: 15 },
+            { element: 'H', dx: 30, dy: 0 }
+        ],
+        bonds: [
+            { s: 0, t: 1, order: 1 }, { s: 0, t: 2, order: 1 }, { s: 0, t: 3, order: 1 }
+        ]
+    }
 };
 
 const getElementData = (symbol: string) => {
     return PERIODIC_TABLE[symbol.toUpperCase()] || PERIODIC_TABLE.UNKNOWN;
 };
 
-const COMMON_ELEMENTS = ['C', 'H', 'O', 'N', 'P', 'S', 'Cl', 'Br'];
+const COMMON_ELEMENTS = ['C', 'H', 'O', 'N', 'P', 'S', 'F', 'Cl', 'Br'];
 
 const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, onAnalyze }) => {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -113,30 +187,31 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   const [selectedAtomId, setSelectedAtomId] = useState<string | null>(null);
   const [selectedElement, setSelectedElement] = useState('C');
   const [customElement, setCustomElement] = useState('');
+  const [suggestions, setSuggestions] = useState<any[]>([]); // Suggestions state
+  const [showPeriodicTable, setShowPeriodicTable] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [errorAtomIds, setErrorAtomIds] = useState<Set<string>>(new Set());
   
-  // Periodic Table UI
-  const [showPeriodicTable, setShowPeriodicTable] = useState(false);
-
-  // Resonance UI
-  const [resonanceIndex, setResonanceIndex] = useState(-1); // -1 = Main, 0..n = Contributors
-
-  // Angle Measurement
+  // Template State
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('benzene');
+  
+  // UI Toggles
+  const [resonanceIndex, setResonanceIndex] = useState(-1);
   const [angleSelection, setAngleSelection] = useState<string[]>([]);
   const [measuredAngle, setMeasuredAngle] = useState<string | null>(null);
+  const [showHydrogens, setShowHydrogens] = useState(true);
 
-  // Refs for access inside D3 event listeners
   const modeRef = useRef(mode);
   const selectedAtomRef = useRef(selectedAtomId);
   const angleSelectionRef = useRef(angleSelection);
+  const selectedTemplateRef = useRef(selectedTemplate);
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { selectedAtomRef.current = selectedAtomId; }, [selectedAtomId]);
   useEffect(() => { angleSelectionRef.current = angleSelection; }, [angleSelection]);
+  useEffect(() => { selectedTemplateRef.current = selectedTemplate; }, [selectedTemplate]);
 
-  // Initialize local data
   useEffect(() => {
     if (data) {
       setLocalData(JSON.parse(JSON.stringify(data)));
@@ -148,7 +223,10 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       setResonanceIndex(-1);
       setAngleSelection([]);
       setMeasuredAngle(null);
+      setShowPeriodicTable(false);
       transformRef.current = d3.zoomIdentity; 
+      // Reset nodes ref to ensure new molecule gets centered
+      nodesRef.current = [];
     }
   }, [data]);
 
@@ -162,71 +240,190 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   const triggerError = (msg: string, ids: string[]) => {
     setErrorMsg(msg);
     setErrorAtomIds(new Set(ids));
-    // Clear highlight after animation
     setTimeout(() => setErrorAtomIds(new Set()), 600);
   };
 
   const getCurrentSnapshot = (): MoleculeData | null => {
     if (!localData) return null;
-    
     const currentNodes = nodesRef.current;
     const atomPosMap = new Map<string, {x: number, y: number}>(
         currentNodes.map((n: any) => [n.id, { x: n.x, y: n.y }])
     );
-
     const atomsWithPos = localData.atoms.map(a => {
         const pos = atomPosMap.get(a.id);
         return pos ? { ...a, x: pos.x, y: pos.y } : a;
     });
-
     const cleanBonds = localData.bonds.map(b => ({
         source: typeof b.source === 'object' ? (b.source as any).id : b.source,
         target: typeof b.target === 'object' ? (b.target as any).id : b.target,
         order: b.order,
         stereo: b.stereo
     }));
-
     return {
         ...localData,
         atoms: atomsWithPos,
         bonds: cleanBonds,
-        symmetry: localData.symmetry // Preserve symmetry
+        symmetry: localData.symmetry
     };
   };
 
   const handleAnalyze = () => {
     const snapshot = getCurrentSnapshot();
-    if (snapshot && onAnalyze) {
-      onAnalyze(snapshot);
-    }
+    if (snapshot && onAnalyze) onAnalyze(snapshot);
+  };
+
+  const handleExportImage = () => {
+    if (!svgRef.current) return;
+    
+    // Create a canvas
+    const canvas = document.createElement('canvas');
+    const bbox = svgRef.current.getBoundingClientRect();
+    canvas.width = bbox.width * 2; // High res
+    canvas.height = bbox.height * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Fill background (Using a safe dark fallback if CSS variable isn't parsed by canvas)
+    ctx.fillStyle = "#0f172a"; 
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // XML Serialization
+    const svgData = new XMLSerializer().serializeToString(svgRef.current);
+    const img = new Image();
+    const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(svgBlob);
+    
+    img.onload = () => {
+        ctx.scale(2, 2);
+        ctx.drawImage(img, 0, 0);
+        
+        // Download
+        const a = document.createElement('a');
+        a.download = `molecule-${Date.now()}.png`;
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+    img.src = url;
   };
 
   const handleAddAtom = (screenX: number, screenY: number) => {
       const snapshot = getCurrentSnapshot();
       if (!snapshot) return;
 
-      const symbol = (customElement.trim() || selectedElement).trim();
-      const elementInfo = getElementData(symbol);
-      if (elementInfo.name === 'Unknown' && symbol.toUpperCase() !== 'UNKNOWN') {
-          alert(`"${symbol}" is not a recognized element in our database.`);
-          return;
+      let inputStr = (customElement.trim() || selectedElement).trim();
+      
+      // Resolve Name to Symbol if user typed a full name (e.g. "Carbon" -> "C")
+      let symbol = inputStr;
+      if (!PERIODIC_TABLE[inputStr.toUpperCase()]) {
+          const found = Object.entries(PERIODIC_TABLE).find(([k, v]) => v.name.toLowerCase() === inputStr.toLowerCase());
+          if (found) symbol = found[0];
       }
+
+      // Format Symbol: "CL" -> "Cl", "c" -> "C"
+      const finalSymbol = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase();
 
       const transform = transformRef.current;
       const worldX = (screenX - transform.x) / transform.k;
       const worldY = (screenY - transform.y) / transform.k;
-
       const newAtom: Atom = {
-          id: `new-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          element: symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase(),
+          id: `new-${Date.now()}`,
+          element: finalSymbol,
           x: worldX,
           y: worldY
       };
+      setLocalData({ ...snapshot, atoms: [...snapshot.atoms, newAtom] });
+  };
+
+  const handleAddTemplate = (screenX: number, screenY: number, targetAtomId?: string) => {
+      const snapshot = getCurrentSnapshot();
+      if (!snapshot) return;
+
+      const template = TEMPLATES[selectedTemplateRef.current];
+      if (!template) return;
+
+      const newAtoms: Atom[] = [];
+      const newBonds: Bond[] = [];
+      const timestamp = Date.now();
+      
+      let startX = 0, startY = 0;
+
+      if (targetAtomId) {
+          const target = snapshot.atoms.find(a => a.id === targetAtomId);
+          if (target && target.x && target.y) {
+              startX = target.x + 40; // Offset slightly
+              startY = target.y;
+          }
+      } else {
+          const transform = transformRef.current;
+          startX = (screenX - transform.x) / transform.k;
+          startY = (screenY - transform.y) / transform.k;
+      }
+
+      // Create Atoms
+      template.atoms.forEach((tAtom, idx) => {
+          newAtoms.push({
+              id: `tmpl-${timestamp}-${idx}`,
+              element: tAtom.element,
+              x: startX + tAtom.dx,
+              y: startY + tAtom.dy
+          });
+      });
+
+      // Create Internal Bonds
+      template.bonds.forEach(tBond => {
+          newBonds.push({
+              source: newAtoms[tBond.s].id,
+              target: newAtoms[tBond.t].id,
+              order: tBond.order,
+              stereo: 'none'
+          });
+      });
+
+      // If attached to an atom, add the connecting bond
+      if (targetAtomId) {
+          // Check valency of target
+          const target = snapshot.atoms.find(a => a.id === targetAtomId);
+          if (target) {
+              const targetData = getElementData(target.element);
+              const currentBonds = getCurrentBondCount(targetAtomId, snapshot.bonds);
+              if (currentBonds >= targetData.maxBonds) {
+                  triggerError(`${target.element} is full. Cannot attach group.`, [targetAtomId]);
+                  return;
+              }
+              // Attach to first atom of template (usually the attachment point)
+              newBonds.push({
+                  source: targetAtomId,
+                  target: newAtoms[0].id,
+                  order: 1,
+                  stereo: 'none'
+              });
+          }
+      }
 
       setLocalData({
           ...snapshot,
-          atoms: [...snapshot.atoms, newAtom]
+          atoms: [...snapshot.atoms, ...newAtoms],
+          bonds: [...snapshot.bonds, ...newBonds]
       });
+  };
+
+  const handleDeleteAtom = (atomId: string) => {
+    const snapshot = getCurrentSnapshot();
+    if (!snapshot) return;
+
+    // Remove atom
+    const newAtoms = snapshot.atoms.filter(a => a.id !== atomId);
+
+    // Remove connected bonds
+    const newBonds = snapshot.bonds.filter(b => {
+        const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
+        const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
+        return s !== atomId && t !== atomId;
+    });
+
+    setLocalData({ ...snapshot, atoms: newAtoms, bonds: newBonds });
+    setSelectedAtomId(null);
   };
   
   const getCurrentBondCount = (atomId: string, bonds: Bond[]): number => {
@@ -234,99 +431,104 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       bonds.forEach(b => {
           const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
           const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
-          if (s === atomId || t === atomId) {
-              count += b.order;
-          }
+          if (s === atomId || t === atomId) count += b.order;
       });
       return count;
   }
 
+  const handleAddHydroxyl = (targetAtomId: string) => {
+    const snapshot = getCurrentSnapshot();
+    if (!snapshot) return;
+
+    const targetAtom = snapshot.atoms.find(a => a.id === targetAtomId);
+    if (!targetAtom) return;
+
+    // 1. Chemistry Rule Check: Valency
+    const targetElData = getElementData(targetAtom.element);
+    const currentBonds = getCurrentBondCount(targetAtomId, snapshot.bonds);
+
+    if (currentBonds >= targetElData.maxBonds) {
+        triggerError(`${targetAtom.element} has max bonds (${targetElData.maxBonds}). Cannot add -OH.`, [targetAtomId]);
+        return;
+    }
+
+    // 2. Position Calculation (Simple Physics Helper)
+    // Place O slightly offset to let D3 force resolve the geometry
+    const ox = (targetAtom.x || 0) + 30;
+    const oy = (targetAtom.y || 0) + 30;
+    const hx = ox + 20;
+    const hy = oy + 20;
+
+    const oId = `new-O-${Date.now()}`;
+    const hId = `new-H-${Date.now()}`;
+
+    const newO: Atom = { id: oId, element: 'O', x: ox, y: oy };
+    const newH: Atom = { id: hId, element: 'H', x: hx, y: hy };
+
+    const bond1: Bond = { source: targetAtomId, target: oId, order: 1, stereo: 'none' };
+    const bond2: Bond = { source: oId, target: hId, order: 1, stereo: 'none' };
+
+    setLocalData({
+        ...snapshot,
+        atoms: [...snapshot.atoms, newO, newH],
+        bonds: [...snapshot.bonds, bond1, bond2]
+    });
+  };
+
   const handleResonanceSwitch = (index: number) => {
       if (!data) return;
       setResonanceIndex(index);
-
       const snapshot = getCurrentSnapshot();
       if (!snapshot) return;
-
-      // If index is -1, restore original bonds. Else use contributor bonds.
-      // Important: Use atoms from current snapshot to preserve positions, but bonds from source data.
-      let newBonds: Bond[] = [];
-      let newDesc = "";
-
-      if (index === -1) {
-          newBonds = data.bonds;
-          newDesc = data.description;
-      } else if (data.resonanceStructures && data.resonanceStructures[index]) {
-          newBonds = data.resonanceStructures[index].bonds;
-          newDesc = data.resonanceStructures[index].description;
-      }
-
-      // Deep copy bonds to separate from reference
-      const bondsCopy = JSON.parse(JSON.stringify(newBonds));
-
+      let newBonds: Bond[] = index === -1 ? data.bonds : (data.resonanceStructures?.[index]?.bonds || data.bonds);
       setLocalData({
           ...snapshot,
-          bonds: bondsCopy,
-          description: newDesc
+          bonds: JSON.parse(JSON.stringify(newBonds)),
+          description: index === -1 ? data.description : (data.resonanceStructures?.[index]?.description || data.description)
       });
-  };
-
-  const handleStereoUpdate = (bondIndex: number, snapshot: MoleculeData) => {
-        const bond = snapshot.bonds[bondIndex];
-        
-        // Stereo cycle only for single bonds
-        if (bond.order !== 1) {
-            triggerError("Stereochemistry only applies to single bonds.", []);
-            return;
-        }
-        
-        const stereoCycle = ['none', 'wedge', 'dash'];
-        const currentIdx = stereoCycle.indexOf(bond.stereo || 'none');
-        const nextStereo = stereoCycle[(currentIdx + 1) % stereoCycle.length];
-
-        const updatedBonds = [...snapshot.bonds];
-        updatedBonds[bondIndex] = { ...bond, stereo: nextStereo as any };
-        setLocalData({ ...snapshot, bonds: updatedBonds });
   };
 
   const handleCycleBond = (bondIndex: number, snapshot: MoleculeData) => {
       const bond = snapshot.bonds[bondIndex];
-      const sId = typeof bond.source === 'object' ? (bond.source as any).id : bond.source;
-      const tId = typeof bond.target === 'object' ? (bond.target as any).id : bond.target;
+      const sourceId = typeof bond.source === 'object' ? (bond.source as any).id : bond.source;
+      const targetId = typeof bond.target === 'object' ? (bond.target as any).id : bond.target;
 
-      const sourceAtom = snapshot.atoms.find(a => a.id === sId);
-      const targetAtom = snapshot.atoms.find(a => a.id === tId);
-      
-      if (!sourceAtom || !targetAtom) return;
-
-      // Cycle Order: 1 -> 2 -> 3 -> 1
       const currentOrder = bond.order;
       let nextOrder = currentOrder >= 3 ? 1 : currentOrder + 1;
-      const orderChange = nextOrder - currentOrder;
-      
-      // Validation
-      if (orderChange > 0) {
-           const sourceMax = getElementData(sourceAtom.element).maxBonds;
-           const targetMax = getElementData(targetAtom.element).maxBonds;
-           const sourceCurrent = getCurrentBondCount(sId, snapshot.bonds);
-           const targetCurrent = getCurrentBondCount(tId, snapshot.bonds);
 
-           if (sourceCurrent + orderChange > sourceMax) {
-               triggerError(`Valency limit: ${sourceAtom.element} max ${sourceMax} bonds`, [sourceAtom.id]);
-               return;
-           }
-           if (targetCurrent + orderChange > targetMax) {
-               triggerError(`Valency limit: ${targetAtom.element} max ${targetMax} bonds`, [targetAtom.id]);
-               return;
-           }
+      // Valency Check
+      if (nextOrder > currentOrder) {
+          const sourceData = getElementData(snapshot.atoms.find(a => a.id === sourceId)?.element || 'C');
+          const targetData = getElementData(snapshot.atoms.find(a => a.id === targetId)?.element || 'C');
+          
+          const sourceCurrent = getCurrentBondCount(sourceId, snapshot.bonds);
+          const targetCurrent = getCurrentBondCount(targetId, snapshot.bonds);
+          
+          if (sourceCurrent - currentOrder + nextOrder > sourceData.maxBonds) {
+              triggerError(`${sourceData.name} exceeds max bonds (${sourceData.maxBonds})`, [sourceId]);
+              return;
+          }
+          if (targetCurrent - currentOrder + nextOrder > targetData.maxBonds) {
+             triggerError(`${targetData.name} exceeds max bonds (${targetData.maxBonds})`, [targetId]);
+             return;
+          }
       }
-      
+
       const updatedBonds = [...snapshot.bonds];
-      updatedBonds[bondIndex] = {
-          ...bond,
-          order: nextOrder,
-          stereo: 'none' // Reset stereo when changing order to double/triple
-      };
+      updatedBonds[bondIndex] = { ...bond, order: nextOrder, stereo: 'none' };
+      setLocalData({ ...snapshot, bonds: updatedBonds });
+  };
+
+  const handleEditStereo = (bondIndex: number, snapshot: MoleculeData) => {
+      const bond = snapshot.bonds[bondIndex];
+      if (bond.order > 1) {
+          triggerError("Stereochemistry applies to single bonds.", []);
+          return;
+      }
+      const currentStereo = bond.stereo || 'none';
+      const nextStereo = currentStereo === 'none' ? 'wedge' : currentStereo === 'wedge' ? 'dash' : 'none';
+      const updatedBonds = [...snapshot.bonds];
+      updatedBonds[bondIndex] = { ...bond, stereo: nextStereo };
       setLocalData({ ...snapshot, bonds: updatedBonds });
   };
 
@@ -344,37 +546,25 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       });
 
       if (existingBondIndex >= 0) {
-          // If bond exists, cycle it
-          handleCycleBond(existingBondIndex, snapshot);
+          // If bond exists, we don't cycle here anymore to avoid confusion. User must click bond directly.
           setSelectedAtomId(null);
       } else {
-          // Create New Bond
-          const sourceAtom = snapshot.atoms.find(a => a.id === currentSelected);
-          const targetAtom = snapshot.atoms.find(a => a.id === targetId);
-          
-          if (!sourceAtom || !targetAtom) return;
-
-          const sourceMax = getElementData(sourceAtom.element).maxBonds;
-          const targetMax = getElementData(targetAtom.element).maxBonds;
+          // Create Bond Valency Check
+          const sourceData = getElementData(snapshot.atoms.find(a => a.id === currentSelected)?.element || 'C');
+          const targetData = getElementData(snapshot.atoms.find(a => a.id === targetId)?.element || 'C');
           const sourceCurrent = getCurrentBondCount(currentSelected, snapshot.bonds);
           const targetCurrent = getCurrentBondCount(targetId, snapshot.bonds);
 
-          // Strict Valency Check for New Bond
-          if (sourceCurrent + 1 > sourceMax) {
-              triggerError(`Cannot add bond: ${sourceAtom.element} full (max ${sourceMax})`, [sourceAtom.id]);
+          if (sourceCurrent + 1 > sourceData.maxBonds) {
+              triggerError(`${sourceData.name} full`, [currentSelected]);
               return;
           }
-          if (targetCurrent + 1 > targetMax) {
-              triggerError(`Cannot add bond: ${targetAtom.element} full (max ${targetMax})`, [targetAtom.id]);
+          if (targetCurrent + 1 > targetData.maxBonds) {
+              triggerError(`${targetData.name} full`, [targetId]);
               return;
           }
 
-          const newBond: Bond = {
-              source: currentSelected,
-              target: targetId,
-              order: 1,
-              stereo: 'none'
-          };
+          const newBond: Bond = { source: currentSelected, target: targetId, order: 1, stereo: 'none' };
           setLocalData({ ...snapshot, bonds: [...snapshot.bonds, newBond] });
           setSelectedAtomId(null); 
       }
@@ -383,16 +573,13 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   const handleBreakBond = (d: any) => {
       const snapshot = getCurrentSnapshot();
       if (!snapshot) return;
-
       const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
       const targetId = typeof d.target === 'object' ? d.target.id : d.target;
-
       const newBonds = snapshot.bonds.filter(b => {
           const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
           const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
           return !(s === sourceId && t === targetId) && !(s === targetId && t === sourceId);
       });
-
       setLocalData({ ...snapshot, bonds: newBonds });
   };
 
@@ -400,847 +587,640 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       const p1 = nodes.find(n => n.id === id1);
       const p2 = nodes.find(n => n.id === id2); // Vertex
       const p3 = nodes.find(n => n.id === id3);
-
       if (!p1 || !p2 || !p3) return null;
 
-      // Vectors p2->p1 and p2->p3
-      const v1x = p1.x - p2.x;
-      const v1y = p1.y - p2.y;
-      const v2x = p3.x - p2.x;
-      const v2y = p3.y - p2.y;
-
+      const v1x = p1.x - p2.x, v1y = p1.y - p2.y;
+      const v2x = p3.x - p2.x, v2y = p3.y - p2.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag1 = Math.sqrt(v1x*v1x + v1y*v1y);
       const mag2 = Math.sqrt(v2x*v2x + v2y*v2y);
-
       if (mag1 === 0 || mag2 === 0) return null;
 
       const angleRad = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
-      const angleDeg = (angleRad * 180) / Math.PI;
-      
-      return angleDeg.toFixed(1);
+      return ((angleRad * 180) / Math.PI).toFixed(1);
   };
 
-  const getWedgePath = (x1: number, y1: number, x2: number, y2: number, width: number = 6): string => {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
+  const getWedgePath = (x1: number, y1: number, x2: number, y2: number, width: number = 10): string => {
+      const dx = x2 - x1, dy = y2 - y1;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len === 0) return "";
-      
-      const nx = (-dy / len) * width;
-      const ny = (dx / len) * width;
-      
+      // Normal vector
+      const nx = (-dy / len) * width, ny = (dx / len) * width;
       return `M ${x1} ${y1} L ${x2 + nx} ${y2 + ny} L ${x2 - nx} ${y2 - ny} Z`;
   };
 
-  // --- D3 Graph Effect ---
   useEffect(() => {
     if (!localData || !svgRef.current || !containerRef.current) return;
-
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
-
     d3.select(svgRef.current).selectAll("*").remove();
 
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height])
       .attr("style", "max-width: 100%; height: auto; user-select: none;");
 
-    // Preserve Node Positions
+    // Create definitions for gradients or patterns
+    const defs = svg.append("defs");
+
+    // 1. Drop Shadow Filter
+    const filter = defs.append("filter")
+        .attr("id", "atom-shadow")
+        .attr("height", "150%")
+        .attr("width", "150%");
+    
+    filter.append("feGaussianBlur")
+        .attr("in", "SourceAlpha")
+        .attr("stdDeviation", 2.5)
+        .attr("result", "blur");
+    
+    filter.append("feOffset")
+        .attr("in", "blur")
+        .attr("dx", 2)
+        .attr("dy", 2)
+        .attr("result", "offsetBlur");
+    
+    filter.append("feComposite")
+        .attr("in", "offsetBlur")
+        .attr("operator", "out")
+        .attr("in2", "SourceAlpha")
+        .attr("result", "shadow");
+        
+    const feMerge = filter.append("feMerge");
+    feMerge.append("feMergeNode").attr("in", "offsetBlur");
+    feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
     const oldNodesMap = new Map<string, any>(nodesRef.current.map((n: any) => [n.id, n]));
     
-    const nodes = localData.atoms.map(a => {
-        const old = oldNodesMap.get(a.id);
-        if (old) {
-            return { ...a, x: old.x, y: old.y, vx: old.vx, vy: old.vy };
-        }
-        return { ...a };
+    // Filter Atoms for "Skeletal Mode" (Hide Hydrogens attached to Carbon)
+    const hiddenAtomIds = new Set<string>();
+    
+    if (!showHydrogens) {
+        localData.atoms.forEach(atom => {
+             if (atom.element === 'H') {
+                 // Check if connected to a Carbon
+                 const isConnectedToCarbon = localData.bonds.some(b => {
+                     const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
+                     const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
+                     if (s !== atom.id && t !== atom.id) return false;
+                     
+                     const partnerId = s === atom.id ? t : s;
+                     const partner = localData.atoms.find(a => a.id === partnerId);
+                     return partner && partner.element === 'C';
+                 });
+                 if (isConnectedToCarbon) hiddenAtomIds.add(atom.id);
+             }
+        });
+    }
+
+    const nodes = localData.atoms
+        .filter(a => !hiddenAtomIds.has(a.id))
+        .map(a => {
+            const old = oldNodesMap.get(a.id);
+            return old ? { ...a, x: old.x, y: old.y, vx: old.vx, vy: old.vy } : { ...a };
+        });
+    
+    // Check if we have pre-existing positions (if so, we are editing, not loading fresh)
+    const hasExistingPositions = nodes.length > 0 && nodes.some((n: any) => n.x !== undefined && !isNaN(n.x));
+
+    // 2. Gradients
+    const uniqueElements = Array.from(new Set(nodes.map((n: any) => n.element)));
+    uniqueElements.forEach(elem => {
+        const atomData = getElementData(elem);
+        const baseColor = atomData.color;
+        
+        const grad = defs.append("radialGradient")
+            .attr("id", `grad-${elem}`)
+            .attr("cx", "35%")
+            .attr("cy", "35%")
+            .attr("r", "60%")
+            .attr("fx", "20%")
+            .attr("fy", "20%");
+            
+        grad.append("stop")
+            .attr("offset", "0%")
+            .attr("stop-color", "#ffffff")
+            .attr("stop-opacity", 0.9); // Sharper highlight for glossy look
+            
+        grad.append("stop")
+            .attr("offset", "20%")
+            .attr("stop-color", d3.rgb(baseColor).brighter(0.5).toString())
+            .attr("stop-opacity", 1);
+            
+        grad.append("stop")
+            .attr("offset", "50%")
+            .attr("stop-color", baseColor)
+            .attr("stop-opacity", 1);
+            
+        grad.append("stop")
+            .attr("offset", "100%")
+            .attr("stop-color", d3.rgb(baseColor).darker(2).toString())
+            .attr("stop-opacity", 1);
     });
-    
-    const links = localData.bonds.map(b => ({ 
-      source: typeof b.source === 'object' ? (b.source as any).id : b.source, 
-      target: typeof b.target === 'object' ? (b.target as any).id : b.target, 
-      order: b.order,
-      stereo: b.stereo
-    }));
-    
+
+    const links = localData.bonds
+        .filter(b => {
+             const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
+             const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
+             return !hiddenAtomIds.has(s) && !hiddenAtomIds.has(t);
+        })
+        .map(b => ({ 
+            source: typeof b.source === 'object' ? (b.source as any).id : b.source, 
+            target: typeof b.target === 'object' ? (b.target as any).id : b.target, 
+            order: b.order, 
+            stereo: b.stereo 
+        }));
+        
     nodesRef.current = nodes;
 
     const g = svg.append("g").attr("class", "zoom-layer");
-
-    const zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 4])
+    
+    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 8])
       .on("zoom", (event) => {
-        g.attr("transform", event.transform);
-        transformRef.current = event.transform;
+          g.attr("transform", event.transform as any);
+          transformRef.current = event.transform;
       });
-    
-    svg.call(zoomBehavior);
-    svg.call(zoomBehavior.transform, transformRef.current);
 
-    // Background
-    g.append("rect")
-        .attr("width", width * 40)
-        .attr("height", height * 40)
-        .attr("x", -width * 20)
-        .attr("y", -height * 20)
-        .attr("fill", "transparent")
-        .on("click", (event) => {
+    // Apply zoom behavior and RESTORE previous transform immediately
+    svg.call(zoomBehavior as any)
+       .call(zoomBehavior.transform as any, transformRef.current);
+
+    // Force Simulation
+    simulationRef.current = d3.forceSimulation(nodes as any)
+        .force("link", d3.forceLink(links).id((d: any) => d.id).distance(60))
+        .force("charge", d3.forceManyBody().strength(-300))
+        .force("collision", d3.forceCollide().radius(30));
+
+    // Only add Centering force if we don't have established positions (Initial Load)
+    // This prevents the whole molecule from "jumping" or shifting when an atom is added/removed.
+    if (!hasExistingPositions) {
+        simulationRef.current.force("center", d3.forceCenter(width / 2, height / 2));
+    }
+
+    // Bond Groups
+    const linkGroup = g.append("g")
+        .attr("class", "links")
+        .selectAll("g")
+        .data(links)
+        .enter().append("g")
+        .attr("class", "bond-group")
+        .style("cursor", "pointer")
+        .on("click", (event, d) => {
+            event.stopPropagation();
             const m = modeRef.current;
-            if (m === 'add-atom') {
-                const [screenX, screenY] = d3.pointer(event, svg.node()); 
-                handleAddAtom(screenX, screenY);
-            } else if (m === 'measure-angle') {
-                 // Don't clear selection in measure mode on background click, to allow easy retry? 
-                 // Or clear it. Let's clear it for UI consistency.
-                 setAngleSelection([]);
-                 setMeasuredAngle(null);
-            } else {
-                setSelectedAtomId(null); 
-            }
-        });
-
-    const sim = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(60))
-      .force("charge", d3.forceManyBody().strength(-200))
-      .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05))
-      .force("collide", d3.forceCollide().radius((d: any) => getElementData(d.element).radius + 5))
-      .alphaDecay(0.02)
-      .alpha(0.5); 
-
-    simulationRef.current = sim;
-
-    // --- LINKS ---
-    const linkGroup = g.append("g").attr("class", "links");
-    
-    const linkGroups = linkGroup
-      .selectAll("g")
-      .data(links)
-      .join("g")
-      .attr("class", "link-wrapper")
-      .on("click", (e, d: any) => {
-        e.stopPropagation();
-        if (modeRef.current === 'break-bond') {
-          handleBreakBond(d);
-        } else if (modeRef.current === 'add-bond') {
-          const snapshot = getCurrentSnapshot();
-          if (!snapshot) return;
-          const sId = d.source.id;
-          const tId = d.target.id;
-          const idx = snapshot.bonds.findIndex(b => {
-               const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
-               const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
-               return (s === sId && t === tId) || (s === tId && t === sId);
-          });
-          if (idx !== -1) handleCycleBond(idx, snapshot);
-        } else if (modeRef.current === 'edit-stereo') {
             const snapshot = getCurrentSnapshot();
             if (!snapshot) return;
-            const sId = d.source.id;
-            const tId = d.target.id;
-            const idx = snapshot.bonds.findIndex(b => {
+            const bondIndex = snapshot.bonds.findIndex(b => {
                const s = typeof b.source === 'object' ? (b.source as any).id : b.source;
                const t = typeof b.target === 'object' ? (b.target as any).id : b.target;
-               return (s === sId && t === tId) || (s === tId && t === sId);
+               const ds = typeof d.source === 'object' ? d.source.id : d.source;
+               const dt = typeof d.target === 'object' ? d.target.id : d.target;
+               return (s===ds && t===dt) || (s===dt && t===ds);
             });
-            if (idx !== -1) handleStereoUpdate(idx, snapshot);
-        }
-      })
-      .on("mouseenter", function(event, d: any) {
-          if (modeRef.current === 'break-bond') {
-              d3.select(this).select(".bond-highlight")
-                .attr("stroke", "#ef4444")
-                .attr("opacity", 0.6);
-          } else if (modeRef.current === 'add-bond') {
-              d3.select(this).select(".bond-highlight")
-                .attr("stroke", "#3b82f6")
-                .attr("opacity", 0.6)
-                .attr("cursor", "pointer");
 
-              // Show valency for connected atoms
-              const sId = d.source.id; 
-              const tId = d.target.id;
-              const sAtom = localData.atoms.find(a => a.id === sId);
-              const tAtom = localData.atoms.find(a => a.id === tId);
-              
-              if (sAtom && tAtom) {
-                  const sBonds = getCurrentBondCount(sId, localData.bonds);
-                  const sMax = getElementData(sAtom.element).maxBonds;
-                  const tBonds = getCurrentBondCount(tId, localData.bonds);
-                  const tMax = getElementData(tAtom.element).maxBonds;
-                  
-                  setTooltip({
-                      x: event.pageX,
-                      y: event.pageY,
-                      bondInfo: {
-                          source: { element: sAtom.element, current: sBonds, max: sMax },
-                          target: { element: tAtom.element, current: tBonds, max: tMax },
-                          order: d.order
-                      }
-                  });
-              }
-          } else if (modeRef.current === 'edit-stereo') {
-              d3.select(this).select(".bond-highlight")
-                .attr("stroke", "#818cf8") // Indigo
-                .attr("opacity", 0.6)
-                .attr("cursor", "pointer");
-          }
-      })
-      .on("mouseleave", function(_event, _d: any) {
-           setTooltip(null);
-           d3.select(this).select(".bond-highlight")
-            .attr("stroke", "transparent")
-            .attr("opacity", 0);
-      });
+            if (bondIndex === -1) return;
 
-    // Invisible Hit Line
-    linkGroups.append("line")
-        .attr("class", "bond-hit")
-        .attr("stroke", "transparent")
-        .attr("stroke-width", 20);
+            if (m === 'break-bond') {
+                handleBreakBond(d);
+            } else if (m === 'add-bond') {
+                handleCycleBond(bondIndex, snapshot);
+            } else if (m === 'edit-stereo') {
+                handleEditStereo(bondIndex, snapshot);
+            }
+        })
+        .on("mouseenter", function() {
+             if (['add-bond', 'break-bond', 'edit-stereo'].includes(modeRef.current)) {
+                 d3.select(this).select(".bond-highlight").attr("opacity", 0.3);
+             }
+        })
+        .on("mouseleave", function() {
+            d3.select(this).select(".bond-highlight").attr("opacity", 0);
+        });
 
-    // Highlight Path (underneath visible bond)
-    linkGroups.append("path")
+    linkGroup.append("path")
         .attr("class", "bond-highlight")
-        .attr("stroke", "transparent") // Default transparent
-        .attr("stroke-width", (d: any) => (d.order * 4) + 6) // Slightly wider than bond
+        .attr("stroke", "#3b82f6")
+        .attr("stroke-width", 14) // Wider highlight
         .attr("stroke-linecap", "round")
         .attr("fill", "none")
         .attr("opacity", 0);
 
-    // Visible Bond Path
-    linkGroups.append("path")
-        .attr("class", "bond-visible")
-        .attr("stroke", (d: any) => d.stereo === 'wedge' ? '#1e293b' : '#94a3b8')
-        .attr("stroke-opacity", (d: any) => d.stereo === 'wedge' ? 1 : 0.8)
-        .attr("stroke-width", (d: any) => d.order === 1 ? 4 : 2.5) // Thinner lines for multiple bonds
+    linkGroup.append("path")
+        .attr("class", "bond-path")
+        .attr("stroke", "#cbd5e1") // Lighter grey for "stick" appearance
+        .attr("stroke-width", 6) // Thicker bond stick
         .attr("stroke-linecap", "round")
-        .attr("stroke-dasharray", (d: any) => d.stereo === 'dash' ? "4,4" : null)
-        .attr("fill", (d: any) => d.stereo === 'wedge' ? '#1e293b' : 'none');
+        .attr("fill", "none");
 
-    // --- NODES ---
-    const nodeGroup = g.append("g").attr("class", "nodes");
-
-    const nodeWrapper = nodeGroup
-      .selectAll("g")
-      .data(nodes)
-      .join("g")
-      .attr("class", "node-wrapper")
-      .call(d3.drag<any, any>()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended)
-      )
-      .on("click", (e, d: any) => {
-        e.stopPropagation(); 
-        const m = modeRef.current;
-        
-        if (m === 'add-bond') {
-           const currentSel = selectedAtomRef.current;
-           if (currentSel === null) {
-             setSelectedAtomId(d.id);
-           } else if (currentSel === d.id) {
-             setSelectedAtomId(null); 
-           } else {
-             handleToggleBond(d.id);
-           }
-        } else if (m === 'measure-angle') {
-            const currentSelection = angleSelectionRef.current;
-            if (currentSelection.length < 3) {
-                const newSelection = [...currentSelection, d.id];
-                setAngleSelection(newSelection);
-                
-                if (newSelection.length === 3) {
-                    const deg = calculateAngle(newSelection[0], newSelection[1], newSelection[2], nodesRef.current);
-                    if (deg) {
-                        setMeasuredAngle(deg);
-                        setErrorMsg(`Bond Angle: ${deg}°`);
-                    } else {
-                        setErrorMsg(`Could not calculate angle.`);
-                        setAngleSelection([]);
+    // Atom Groups
+    const node = g.append("g")
+        .attr("class", "nodes")
+        .selectAll("g")
+        .data(nodes)
+        .enter().append("g")
+        .call(d3.drag<any, any>()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended)
+        )
+        .on("click", (event, d: any) => {
+            event.stopPropagation();
+            if (modeRef.current === 'delete-atom') {
+                handleDeleteAtom(d.id);
+            } else if (modeRef.current === 'add-hydroxyl') {
+                handleAddHydroxyl(d.id);
+            } else if (modeRef.current === 'stamp') {
+                handleAddTemplate(0, 0, d.id);
+            } else if (modeRef.current === 'add-bond') {
+                 if (!selectedAtomRef.current) {
+                    setSelectedAtomId(d.id);
+                 } else {
+                    handleToggleBond(d.id);
+                 }
+            } else if (modeRef.current === 'measure-angle') {
+                const currentSel = [...angleSelectionRef.current];
+                if (!currentSel.includes(d.id)) {
+                    const newSel = [...currentSel, d.id];
+                    setAngleSelection(newSel);
+                    if (newSel.length === 3) {
+                        const angle = calculateAngle(newSel[0], newSel[1], newSel[2], nodesRef.current);
+                        setMeasuredAngle(angle);
+                        setTimeout(() => {
+                            setAngleSelection([]);
+                            setMeasuredAngle(null);
+                        }, 3000);
                     }
                 }
-            } else {
-                // Start new selection
-                setAngleSelection([d.id]);
-                setMeasuredAngle(null);
             }
-        }
-      })
-      .on("mouseenter", function(event, d: any) {
-          const m = modeRef.current;
-          const group = d3.select(this);
+        })
+        .on("mouseover", (event, d: any) => {
+             const atomData = getElementData(d.element);
+             const currentBonds = getCurrentBondCount(d.id, localData.bonds);
+             setTooltip({
+                 x: event.pageX,
+                 y: event.pageY,
+                 atom: d,
+                 valencyInfo: { current: currentBonds, max: atomData.maxBonds, warning: currentBonds > atomData.maxBonds }
+             });
+        })
+        .on("mouseout", () => {
+            setTooltip(null);
+        });
 
-          if (m === 'view' || m === 'measure-angle') {
-              setTooltip({ x: event.pageX, y: event.pageY, atom: d });
-          } else if (m === 'add-bond') {
-              // Check Valency
-              const currentBonds = getCurrentBondCount(d.id, localData.bonds);
-              const maxBonds = getElementData(d.element).maxBonds;
-              const isFull = currentBonds >= maxBonds;
+    node.append("circle")
+        .attr("r", (d: any) => getElementData(d.element).radius + 6)
+        .attr("fill", "none")
+        .attr("stroke", (d: any) => {
+            if (errorAtomIds.has(d.id)) return "#ef4444";
+            if (angleSelectionRef.current.includes(d.id)) return "#f59e0b";
+            if (selectedAtomRef.current === d.id) return "#3b82f6";
+            return "transparent";
+        })
+        .attr("stroke-width", 3)
+        .attr("stroke-dasharray", (d: any) => selectedAtomRef.current === d.id ? "4 2" : "0")
+        .attr("class", "selection-halo");
 
-              // Highlight eligible atom with Valency Check
-              group.select(".atom-main")
-                .transition().duration(100)
-                .attr("stroke", isFull ? "#ef4444" : "#3b82f6") // Red if full, Blue if available
-                .attr("stroke-width", isFull ? 4 : 3)
-                .attr("fill-opacity", 0.9);
+    node.append("circle")
+        .attr("r", (d: any) => getElementData(d.element).radius)
+        .attr("fill", (d: any) => `url(#grad-${d.element})`)
+        .attr("stroke", (d: any) => d3.rgb(getElementData(d.element).color).darker(1.5).toString())
+        .attr("stroke-width", 1)
+        .attr("class", "atom-circle")
+        .style("filter", "url(#atom-shadow)");
 
-              // Show halo if not selected
-              if (selectedAtomRef.current !== d.id) {
-                  group.select(".selection-halo")
-                    .transition().duration(100)
-                    .attr("opacity", 0.5)
-                    .attr("stroke", isFull ? "#ef4444" : "#3b82f6")
-                    .attr("stroke-dasharray", "none");
-              }
+    node.append("text")
+        .text((d: any) => d.element)
+        .attr("text-anchor", "middle")
+        .attr("dy", ".35em")
+        .style("font-size", "14px")
+        .style("font-family", "Arial, sans-serif")
+        .style("font-weight", "900")
+        .style("fill", (d: any) => {
+             const c = d3.color(getElementData(d.element).color);
+             const l = c ? (c as any).rgb().r * 0.299 + (c as any).rgb().g * 0.587 + (c as any).rgb().b * 0.114 : 0;
+             return l > 160 ? "#1a1a1a" : "#FFFFFF";
+        })
+        .style("text-shadow", "0px 1px 2px rgba(0,0,0,0.4)") // Soft shadow for readability
+        .style("pointer-events", "none");
 
-              // Show Valency Info
-              setTooltip({ 
-                  x: event.pageX, 
-                  y: event.pageY, 
-                  atom: d,
-                  valencyInfo: { current: currentBonds, max: maxBonds, warning: isFull } 
-              });
-          }
-      })
-      .on("mouseleave", function(_event, d: any) {
-          setTooltip(null);
-          const m = modeRef.current;
-          const group = d3.select(this);
 
-          if (m === 'add-bond') {
-               group.select(".atom-main")
-                .transition().duration(100)
-                .attr("stroke", "#1e293b")
-                .attr("stroke-width", 1.5)
-                .attr("fill-opacity", 1);
+    simulationRef.current.on("tick", () => {
+        linkGroup.each(function(d: any) {
+            const group = d3.select(this);
+            const x1 = d.source.x;
+            const y1 = d.source.y;
+            const x2 = d.target.x;
+            const y2 = d.target.y;
 
-               if (selectedAtomRef.current !== d.id) {
-                   group.select(".selection-halo")
-                     .transition().duration(100)
-                     .attr("opacity", 0);
-               } else {
-                   // Ensure selected style holds
-                   group.select(".selection-halo")
-                     .transition().duration(100)
-                     .attr("opacity", 1)
-                     .attr("stroke", "#3b82f6")
-                     .attr("stroke-dasharray", "4,2");
-               }
-          }
-      });
+            group.select(".bond-highlight").attr("d", `M${x1},${y1} L${x2},${y2}`);
 
-    nodeWrapper.append("circle")
-      .attr("class", "selection-halo")
-      .attr("r", (d: any) => getElementData(d.element).radius + 6)
-      .attr("fill", "none")
-      .attr("stroke", "#3b82f6")
-      .attr("stroke-width", 3)
-      .attr("stroke-dasharray", "4,2")
-      .attr("opacity", 0);
-
-    nodeWrapper.append("circle")
-      .attr("class", "atom-main")
-      .attr("r", (d: any) => getElementData(d.element).radius)
-      .attr("fill", (d: any) => getElementData(d.element).color)
-      .attr("stroke", "#1e293b")
-      .attr("stroke-width", 1.5);
-
-    nodeWrapper.append("circle")
-      .attr("r", (d: any) => getElementData(d.element).radius / 2.5)
-      .attr("cx", (d: any) => -getElementData(d.element).radius / 3)
-      .attr("cy", (d: any) => -getElementData(d.element).radius / 3)
-      .attr("fill", "white")
-      .attr("fill-opacity", 0.3)
-      .attr("filter", "blur(1px)");
-
-    nodeWrapper.append("text")
-      .text((d: any) => d.element)
-      .attr("y", 1.5)
-      .attr("text-anchor", "middle")
-      .attr("dominant-baseline", "middle")
-      .attr("font-family", "Arial, sans-serif")
-      .attr("font-weight", "bold")
-      .attr("font-size", (d: any) => getElementData(d.element).radius * 0.8)
-      .attr("fill", (d: any) => {
-          const color = getElementData(d.element).color;
-          const r = parseInt(color.substr(1, 2), 16);
-          const g = parseInt(color.substr(3, 2), 16);
-          const b = parseInt(color.substr(5, 2), 16);
-          return (r*0.299 + g*0.587 + b*0.114) > 186 ? '#000' : '#FFF';
-      })
-      .attr("pointer-events", "none");
-
-    sim.on("tick", () => {
-      linkGroup.selectAll(".bond-hit")
-        .attr("x1", (d: any) => d.source.x)
-        .attr("y1", (d: any) => d.source.y)
-        .attr("x2", (d: any) => d.target.x)
-        .attr("y2", (d: any) => d.target.y);
-
-      const getBondPath = (d: any) => {
-            const x1 = d.source.x, y1 = d.source.y;
-            const x2 = d.target.x, y2 = d.target.y;
-
-            if (d.stereo === 'wedge' && d.order === 1) {
-                return getWedgePath(x1, y1, x2, y2);
-            }
-            
+            let pathData = "";
             const dx = x2 - x1;
             const dy = y2 - y1;
-            const len = Math.sqrt(dx*dx + dy*dy) || 1;
-            const nx = -dy / len; 
-            const ny = dx / len; 
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist === 0) return;
             
+            const offsetX = (dy / dist) * 5; // Slightly wider gap for double bonds due to thicker sticks
+            const offsetY = (-dx / dist) * 5;
 
-            if (d.order === 1) {
-                 return `M ${x1} ${y1} L ${x2} ${y2}`;
+            if (d.stereo === 'wedge') {
+                pathData = getWedgePath(x1, y1, x2, y2, 8);
+                group.select(".bond-path").attr("fill", "#cbd5e1").attr("stroke", "none");
+            } else if (d.stereo === 'dash') {
+                pathData = `M${x1},${y1} L${x2},${y2}`;
+                group.select(".bond-path").attr("stroke-dasharray", "4,4").attr("fill", "none").attr("stroke", "#cbd5e1");
+            } else {
+                group.select(".bond-path").attr("stroke-dasharray", null as any).attr("fill", "none").attr("stroke", "#cbd5e1");
+                if (d.order === 3) {
+                    pathData = `M${x1 + offsetX*1.6},${y1 + offsetY*1.6} L${x2 + offsetX*1.6},${y2 + offsetY*1.6} ` +
+                               `M${x1},${y1} L${x2},${y2} ` +
+                               `M${x1 - offsetX*1.6},${y1 - offsetY*1.6} L${x2 - offsetX*1.6},${y2 - offsetY*1.6}`;
+                } else if (d.order === 2) {
+                    pathData = `M${x1 + offsetX},${y1 + offsetY} L${x2 + offsetX},${y2 + offsetY} ` +
+                               `M${x1 - offsetX},${y1 - offsetY} L${x2 - offsetX},${y2 - offsetY}`;
+                } else {
+                    pathData = `M${x1},${y1} L${x2},${y2}`;
+                }
             }
-            
-            if (d.order === 2) {
-                const offset = 4.5; // Slightly wider separation
-                return `M ${x1 + nx*offset} ${y1 + ny*offset} L ${x2 + nx*offset} ${y2 + ny*offset} ` +
-                       `M ${x1 - nx*offset} ${y1 - ny*offset} L ${x2 - nx*offset} ${y2 - ny*offset}`;
-            }
-            
-            if (d.order === 3) {
-                const offset = 5.5; // Wider for triple
-                return `M ${x1} ${y1} L ${x2} ${y2} ` +
-                       `M ${x1 + nx*offset} ${y1 + ny*offset} L ${x2 + nx*offset} ${y2 + ny*offset} ` +
-                       `M ${x1 - nx*offset} ${y1 - ny*offset} L ${x2 - nx*offset} ${y2 - ny*offset}`;
-            }
-            
-            return `M ${x1} ${y1} L ${x2} ${y2}`;
-      };
-
-      linkGroup.selectAll(".bond-visible")
-        .attr("d", (d: any) => getBondPath(d));
-
-      linkGroup.selectAll(".bond-highlight")
-        .attr("d", (d: any) => getBondPath(d));
-
-      nodeWrapper
-        .attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+            group.select(".bond-path").attr("d", pathData);
+        });
+        node.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
 
     function dragstarted(event: any, d: any) {
-      if (modeRef.current !== 'view' && modeRef.current !== 'add-atom') return; 
-      if (!event.active) sim.alphaTarget(0.3).restart();
-      d.fx = d.x;
-      d.fy = d.y;
+        if (!event.active) simulationRef.current.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
     }
 
     function dragged(event: any, d: any) {
-      if (modeRef.current !== 'view' && modeRef.current !== 'add-atom') return;
-      d.fx = event.x;
-      d.fy = event.y;
+        d.fx = event.x;
+        d.fy = event.y;
     }
 
     function dragended(event: any, d: any) {
-      if (modeRef.current !== 'view' && modeRef.current !== 'add-atom') return;
-      if (!event.active) sim.alphaTarget(0);
-      d.fx = null;
-      d.fy = null;
+        if (!event.active) simulationRef.current.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
     }
 
-    return () => {
-      sim.stop();
-    };
-  }, [localData]);
-
-  // Effect for visual feedback (valency error or angle selection)
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    
-    svg.selectAll(".node-wrapper").each(function(d: any) {
-        const isError = errorAtomIds.has(d.id);
-        const isAngleSelected = angleSelection.includes(d.id);
-        const selectionIndex = angleSelection.indexOf(d.id);
-
-        const group = d3.select(this);
-        const circle = group.select(".atom-main");
-        const halo = group.select(".selection-halo");
-        const elData = getElementData(d.element);
-
-        if (isError) {
-            circle.transition().duration(100)
-                .attr("fill", "#ef4444")
-                .attr("stroke", "#b91c1c")
-                .attr("stroke-width", 4);
-        } else if (isAngleSelected) {
-             circle.transition().duration(100)
-                .attr("fill", "#fcd34d") // Amber for measure
-                .attr("stroke", "#f59e0b")
-                .attr("stroke-width", 3);
-             
-             halo.transition().duration(100)
-                .attr("opacity", 1)
-                .attr("stroke", "#f59e0b")
-                .attr("stroke-dasharray", "none");
-             
+    svg.on("click", (event) => {
+        const coords = d3.pointer(event);
+        if (modeRef.current === 'add-atom' && !showPeriodicTable) {
+             handleAddAtom(coords[0], coords[1]);
+        } else if (modeRef.current === 'stamp') {
+            handleAddTemplate(coords[0], coords[1]);
         } else {
-            circle.transition().duration(300)
-                .attr("fill", elData.color)
-                .attr("stroke", "#1e293b")
-                .attr("stroke-width", 1.5);
-            
-            // Only hide halo if NOT the general edit selection
-            if (selectedAtomId !== d.id) {
-                halo.transition().duration(100).attr("opacity", 0);
-            }
+             setSelectedAtomId(null);
         }
     });
-  }, [errorAtomIds, angleSelection]);
 
-  useEffect(() => {
-      if (!svgRef.current) return;
-      const svg = d3.select(svgRef.current);
-      svg.selectAll(".node-wrapper")
-         .attr("cursor", mode === 'add-bond' || mode === 'measure-angle' ? 'pointer' : mode === 'view' ? 'grab' : 'default');
-      
-      svg.selectAll(".link-wrapper")
-         .attr("cursor", (mode === 'break-bond' || mode === 'add-bond' || mode === 'edit-stereo') ? 'pointer' : 'default');
+    return () => {
+        simulationRef.current?.stop();
+    };
+  }, [localData, mode, angleSelection, selectedAtomId, errorAtomIds, showHydrogens]); 
 
-      svg.selectAll(".selection-halo")
-         .attr("opacity", (d: any) => d.id === selectedAtomId ? 1 : 0)
-         .attr("stroke", "#3b82f6")
-         .attr("stroke-dasharray", "4,2");
-
-  }, [mode, selectedAtomId]);
-
-  const customElementInfo = customElement ? getElementData(customElement) : null;
-  const isCustomValid = customElement && customElementInfo?.name !== 'Unknown';
+  const renderPeriodicTable = () => {
+      const elements = Object.entries(PERIODIC_TABLE).filter(([k,v]) => k !== 'UNKNOWN');
+      return (
+          <div className="absolute top-20 left-16 bg-skin-surface/95 backdrop-blur-md border border-skin-border p-4 rounded-xl shadow-2xl z-50 animate-enter max-w-[800px] overflow-auto max-h-[80vh]">
+              <div className="flex justify-between items-center mb-4 border-b border-skin-border pb-2">
+                  <h3 className="font-bold text-skin-main flex items-center gap-2"><Grid3X3 size={18}/> Periodic Table</h3>
+                  <button onClick={() => setShowPeriodicTable(false)} className="text-skin-muted hover:text-skin-main"><X size={20}/></button>
+              </div>
+              <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(18, minmax(36px, 1fr))' }}>
+                  {elements.map(([symbol, data]) => (
+                      <button
+                          key={symbol}
+                          onClick={() => {
+                              setSelectedElement(symbol);
+                              setCustomElement('');
+                              setShowPeriodicTable(false);
+                          }}
+                          className={`
+                            w-9 h-9 flex flex-col items-center justify-center rounded border text-[10px] transition-transform hover:scale-110
+                            ${selectedElement === symbol ? 'ring-2 ring-skin-primary z-10' : ''}
+                          `}
+                          style={{
+                              gridColumn: data.col,
+                              gridRow: data.row,
+                              backgroundColor: data.color,
+                              color: d3.color(data.color) && (d3.color(data.color) as any).rgb().r * 0.299 + (d3.color(data.color) as any).rgb().g * 0.587 + (d3.color(data.color) as any).rgb().b * 0.114 > 160 ? '#222' : '#fff',
+                              borderColor: 'rgba(0,0,0,0.1)'
+                          }}
+                      >
+                          <span className="font-bold text-xs">{symbol}</span>
+                      </button>
+                  ))}
+              </div>
+              <div className="mt-4 text-xs text-skin-muted grid grid-cols-4 gap-2">
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#404040] rounded-sm"></div> Non-metals</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#CC80FF] rounded-sm"></div> Alkali Metals</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#A6A6AB] rounded-sm"></div> Transition Metals</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 bg-[#d9ffff] rounded-sm"></div> Noble Gases</div>
+              </div>
+          </div>
+      );
+  };
 
   return (
-    <div ref={containerRef} className="w-full h-full relative bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-700">
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-30">
-          <div className="text-center">
-            <Loader2 className="w-10 h-10 text-blue-500 animate-spin mx-auto mb-2" />
-            <p className="text-blue-200 font-medium">Processing...</p>
-          </div>
-        </div>
-      )}
-      {!localData && !loading && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-500">
-          <p>Enter a molecule name to visualize.</p>
-        </div>
-      )}
-      
-      <svg ref={svgRef} className="w-full h-full"></svg>
-
-      {/* Persistent Warning for Impossible Structures */}
-      {localData && (localData.name.includes("Impossible") || localData.name.includes("Invalid")) && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-lg bg-red-900/90 border border-red-500 text-white p-4 rounded-xl shadow-2xl z-30 backdrop-blur-sm animate-fade-in flex items-start gap-3">
-            <AlertTriangle className="text-red-400 shrink-0 mt-1" size={24} />
-            <div>
-                <h4 className="font-bold text-red-200 text-lg">Chemically Impossible</h4>
-                <p className="text-sm text-red-100 mt-1 leading-relaxed opacity-90">
-                    {localData.description}
-                </p>
+    <div ref={containerRef} className="w-full h-full relative bg-skin-sidebar-bg overflow-hidden" onMouseLeave={() => setTooltip(null)}>
+        {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-50">
+                <Loader2 className="animate-spin w-10 h-10 text-white" />
             </div>
+        )}
+        
+        {/* Toolbar */}
+        <div className="absolute top-4 left-4 flex flex-col gap-2 bg-skin-surface border border-skin-border p-2 rounded-lg shadow-lg z-10">
+            <button onClick={() => setMode('view')} className={`p-2 rounded ${mode === 'view' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="View/Drag"><MousePointer2 size={20}/></button>
+            <button onClick={() => setMode('add-atom')} className={`p-2 rounded ${mode === 'add-atom' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Add Atom"><PlusCircle size={20}/></button>
+            <button onClick={() => setMode('add-bond')} className={`p-2 rounded ${mode === 'add-bond' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Add/Edit Bond (Cycle Order)"><LinkIcon size={20}/></button>
+            <button onClick={() => setMode('edit-stereo')} className={`p-2 rounded ${mode === 'edit-stereo' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Edit Stereochemistry"><Layers size={20}/></button>
+            <button onClick={() => setMode('stamp')} className={`p-2 rounded ${mode === 'stamp' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Templates / Functional Groups"><Stamp size={20}/></button>
+            <button onClick={() => setMode('break-bond')} className={`p-2 rounded ${mode === 'break-bond' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Break Bond"><Scissors size={20}/></button>
+            <button onClick={() => setMode('measure-angle')} className={`p-2 rounded ${mode === 'measure-angle' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Measure Angle"><Ruler size={20}/></button>
+            <button onClick={() => setMode('add-hydroxyl')} className={`p-2 rounded ${mode === 'add-hydroxyl' ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} title="Add Hydroxyl Group (-OH)"><Droplets size={20}/></button>
+            
+            <div className="h-px bg-skin-border my-1"></div>
+            
+             <button 
+                onClick={() => setShowHydrogens(!showHydrogens)} 
+                className={`p-2 rounded ${!showHydrogens ? 'bg-skin-primary text-white' : 'text-skin-muted hover:bg-skin-base'}`} 
+                title={showHydrogens ? "Hide Hydrogens (Skeletal Mode)" : "Show Hydrogens"}
+            >
+                <Ghost size={20}/>
+            </button>
+
+            <button onClick={() => setMode('delete-atom')} className={`p-2 rounded ${mode === 'delete-atom' ? 'bg-red-500 text-white' : 'text-skin-muted hover:bg-red-100 hover:text-red-500'}`} title="Delete Atom"><Trash2 size={20}/></button>
+            
+            <div className="h-px bg-skin-border my-1"></div>
+            <button onClick={handleAnalyze} className="p-2 rounded hover:bg-skin-base text-green-500" title="Analyze Structure"><Wand2 size={20}/></button>
+            <button onClick={() => setLocalData(data ? JSON.parse(JSON.stringify(data)) : null)} className="p-2 rounded hover:bg-skin-base text-yellow-500" title="Reset"><RefreshCw size={20}/></button>
+            <button onClick={handleExportImage} className="p-2 rounded hover:bg-skin-base text-cyan-500" title="Export Image"><Camera size={20}/></button>
         </div>
-      )}
-      
-      {errorMsg && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg border border-slate-600 flex items-center gap-2 z-40 animate-fade-in">
-            <Info size={18} className="text-blue-400" />
-            <span className="text-sm font-bold">{errorMsg}</span>
-        </div>
-      )}
-      
-      {measuredAngle && (
-         <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-amber-100 text-amber-800 px-4 py-2 rounded-lg shadow-lg border border-amber-300 z-40 animate-fade-in font-bold">
-             ∠ {measuredAngle}°
-         </div>
-      )}
 
-      {tooltip && (
-          <div 
-            className="fixed z-50 bg-slate-800 text-white p-2 rounded-lg shadow-xl border border-slate-600 text-xs pointer-events-none transform -translate-y-full -translate-x-1/2 mt-[-10px]"
-            style={{ left: tooltip.x, top: tooltip.y }}
-          >
-              {tooltip.atom && (
-                 <>
-                  <div className="font-bold text-base flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: getElementData(tooltip.atom.element).color }}></span>
-                    {getElementData(tooltip.atom.element).name} ({tooltip.atom.element})
-                  </div>
-                  <div className="text-slate-300 mt-1 max-w-[150px]">
-                      {getElementData(tooltip.atom.element).description}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 mt-2 border-t border-slate-700 pt-2">
-                      <div>
-                          <span className="uppercase text-[10px] font-bold">Atomic No.</span>
-                          <div className="text-white font-mono">{getElementData(tooltip.atom.element).atomicNumber}</div>
-                      </div>
-                       <div>
-                          <span className="uppercase text-[10px] font-bold">Mass</span>
-                          <div className="text-white font-mono">{getElementData(tooltip.atom.element).mass}</div>
-                      </div>
-                      <div className="col-span-2">
-                          <span className="uppercase text-[10px] font-bold">Oxidation States</span>
-                          <div className="text-white font-mono">{getElementData(tooltip.atom.element).oxidationStates}</div>
-                      </div>
-                  </div>
-                  {tooltip.valencyInfo && (
-                    <div className="mt-1 pt-1 border-t border-slate-600 flex justify-between items-center">
-                        <span className="text-slate-400">Valency:</span>
-                        <span className={`font-mono font-bold ${
-                            tooltip.valencyInfo.warning ? 'text-red-500 animate-pulse' : // More distinct warning
-                            tooltip.valencyInfo.current === tooltip.valencyInfo.max ? 'text-yellow-400' : 'text-emerald-400'
-                        }`}>
-                            {tooltip.valencyInfo.current} / {tooltip.valencyInfo.max}
-                            {tooltip.valencyInfo.warning && " (Max)"}
-                        </span>
-                    </div>
-                  )}
-                 </>
-              )}
-              
-              {tooltip.bondInfo && (
-                 <div className="text-sm">
-                    <div className="font-bold text-blue-300 mb-2 text-center border-b border-slate-600 pb-1">Bond Order: {tooltip.bondInfo.order}</div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-700 p-1.5 rounded text-center">
-                            <div className="font-bold mb-1">{tooltip.bondInfo.source.element}</div>
-                            <div className={`font-mono ${tooltip.bondInfo.source.current > tooltip.bondInfo.source.max ? 'text-red-400' : 'text-slate-300'}`}>
-                                {tooltip.bondInfo.source.current} / {tooltip.bondInfo.source.max}
-                            </div>
-                        </div>
-                        <div className="bg-slate-700 p-1.5 rounded text-center">
-                            <div className="font-bold mb-1">{tooltip.bondInfo.target.element}</div>
-                            <div className={`font-mono ${tooltip.bondInfo.target.current > tooltip.bondInfo.target.max ? 'text-red-400' : 'text-slate-300'}`}>
-                                {tooltip.bondInfo.target.current} / {tooltip.bondInfo.target.max}
-                            </div>
-                        </div>
-                    </div>
-                 </div>
-              )}
-          </div>
-      )}
-
-      {localData && (
-         <>
-            <div className="absolute top-4 right-4 bg-white p-2 rounded-lg shadow-lg border border-slate-200 flex flex-col gap-2 z-20">
-                <button 
-                    onClick={() => { setMode('view'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="View / Move Atoms"
-                    className={`p-2 rounded transition-colors ${mode === 'view' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <MousePointer2 size={20} />
-                </button>
-                
-                <button 
-                    onClick={() => { setMode('add-atom'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="Add Atom"
-                    className={`p-2 rounded transition-colors ${mode === 'add-atom' ? 'bg-purple-100 text-purple-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <PlusCircle size={20} />
-                </button>
-
-                <button 
-                    onClick={() => { setMode('add-bond'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="Add Bond. Click 2 atoms to connect. Click bond to cycle order (1-2-3)."
-                    className={`p-2 rounded transition-colors ${mode === 'add-bond' ? 'bg-emerald-100 text-emerald-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <LinkIcon size={20} />
-                </button>
-                <button 
-                    onClick={() => { setMode('edit-stereo'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="Edit Stereochemistry (Click single bonds)"
-                    className={`p-2 rounded transition-colors ${mode === 'edit-stereo' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <Layers size={20} />
-                </button>
-                <button 
-                    onClick={() => { setMode('measure-angle'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="Measure Angle (Click 3 atoms: Start -> Center -> End)"
-                    className={`p-2 rounded transition-colors ${mode === 'measure-angle' ? 'bg-amber-100 text-amber-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <Ruler size={20} />
-                </button>
-                <button 
-                    onClick={() => { setMode('break-bond'); setSelectedAtomId(null); setAngleSelection([]); }}
-                    title="Break Bond (Click bond)"
-                    className={`p-2 rounded transition-colors ${mode === 'break-bond' ? 'bg-red-100 text-red-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <Scissors size={20} />
-                </button>
-                <div className="h-px bg-slate-200 my-1"></div>
-                <button 
-                    onClick={handleAnalyze}
-                    disabled={loading}
-                    title="Analyze Result"
-                    className="p-2 rounded text-indigo-600 hover:bg-indigo-50 transition-colors"
-                >
-                    <Wand2 size={20} />
-                </button>
+        {/* Template Selector */}
+        {mode === 'stamp' && (
+            <div className="absolute top-4 left-16 ml-4 bg-skin-surface border border-skin-border p-2 rounded-lg shadow-lg z-10 flex gap-2 items-center animate-slide-up">
+                {Object.entries(TEMPLATES).map(([key, tmpl]) => (
+                    <button 
+                        key={key}
+                        onClick={() => setSelectedTemplate(key)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${selectedTemplate === key ? 'bg-skin-primary text-white' : 'bg-skin-base text-skin-main hover:bg-skin-border'}`}
+                        title={tmpl.name}
+                    >
+                        {tmpl.name}
+                    </button>
+                ))}
             </div>
+        )}
 
-            {mode === 'add-atom' && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white p-2 rounded-lg shadow-lg border border-slate-200 flex flex-col gap-2 z-20 animate-fade-in">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase mr-2">Element:</span>
-                        {COMMON_ELEMENTS.map(el => (
-                            <button
-                                key={el}
-                                onClick={() => { setSelectedElement(el); setCustomElement(''); setShowPeriodicTable(false); }}
-                                className={`w-8 h-8 rounded-full font-bold text-sm flex items-center justify-center transition-all ${
-                                    selectedElement === el && !customElement
-                                        ? 'bg-slate-800 text-white scale-110 shadow-md' 
-                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                            >
-                                {el}
-                            </button>
-                        ))}
-                        <div className="h-6 w-px bg-slate-200 mx-1"></div>
-                        <button 
-                            onClick={() => setShowPeriodicTable(!showPeriodicTable)}
-                            className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${showPeriodicTable ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                            title="Select from Periodic Table"
-                        >
-                            <Grid3X3 size={16} />
+        {/* Quick Element Selector & Periodic Table Toggle */}
+        {mode === 'add-atom' && (
+            <div className="absolute top-4 left-16 ml-4 bg-skin-surface border border-skin-border p-2 rounded-lg shadow-lg z-10 flex gap-2 items-center animate-slide-up">
+                <div className="flex gap-1">
+                    {COMMON_ELEMENTS.slice(0, 5).map(el => (
+                        <button key={el} onClick={() => {setSelectedElement(el); setCustomElement(''); setSuggestions([]); }} className={`w-8 h-8 rounded font-bold text-xs shadow-sm transition-all ${selectedElement === el && !customElement ? 'bg-skin-primary text-white scale-110' : 'bg-skin-base text-skin-muted hover:bg-skin-border'}`}>
+                            {el}
                         </button>
-                    </div>
-                    
-                    {showPeriodicTable && (
-                        <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-200 grid grid-cols-8 gap-1 max-h-60 overflow-y-auto w-[320px]">
-                            {Object.entries(PERIODIC_TABLE).filter(([k]) => k !== 'UNKNOWN').map(([symbol, info]) => (
-                                <button
-                                    key={symbol}
-                                    onClick={() => { 
-                                        setSelectedElement(symbol); 
-                                        setCustomElement('');
-                                        setShowPeriodicTable(false);
+                    ))}
+                </div>
+                <div className="w-px h-6 bg-skin-border mx-1"></div>
+                <button 
+                    onClick={() => setShowPeriodicTable(!showPeriodicTable)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${showPeriodicTable ? 'bg-skin-primary text-white' : 'bg-skin-base text-skin-main hover:bg-skin-border'}`}
+                >
+                    <Grid3X3 size={14}/> Table
+                </button>
+                <div className="relative">
+                     <input 
+                        value={customElement}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setCustomElement(val);
+                            if (val) {
+                                const results = Object.entries(PERIODIC_TABLE)
+                                    .filter(([sym, data]) => 
+                                        sym !== 'UNKNOWN' && 
+                                        (sym.toLowerCase().startsWith(val.toLowerCase()) || data.name.toLowerCase().includes(val.toLowerCase()))
+                                    )
+                                    .map(([sym, data]) => ({ sym, ...data }))
+                                    .slice(0, 5);
+                                setSuggestions(results);
+                            } else {
+                                setSuggestions([]);
+                            }
+                        }}
+                        placeholder="Sym"
+                        className="w-12 h-8 bg-skin-base border border-skin-border rounded text-center text-xs focus:ring-2 ring-skin-primary outline-none text-skin-main uppercase"
+                    />
+                    {suggestions.length > 0 && (
+                        <div className="absolute top-full left-0 w-48 bg-skin-surface border border-skin-border rounded shadow-lg z-50 mt-1 max-h-48 overflow-y-auto">
+                            {suggestions.map(s => (
+                                <button 
+                                    key={s.sym}
+                                    onClick={() => {
+                                        setCustomElement(s.sym);
+                                        setSuggestions([]);
                                     }}
-                                    className="aspect-square rounded flex flex-col items-center justify-center hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all text-xs"
-                                    style={{ 
-                                        backgroundColor: selectedElement === symbol ? '#cbd5e1' : 'transparent'
-                                    }}
-                                    title={info.name}
+                                    className="w-full text-left px-3 py-2 hover:bg-skin-base flex items-center justify-between text-xs border-b border-skin-border last:border-0"
                                 >
-                                    <span className="font-bold" style={{ color: info.color === '#FFFFFF' ? '#000' : info.color }}>{symbol}</span>
+                                    <span className="font-bold text-skin-main">{s.name}</span>
+                                    <span className="text-skin-muted bg-skin-base px-1.5 py-0.5 rounded border border-skin-border">{s.sym}</span>
                                 </button>
                             ))}
                         </div>
                     )}
-                    
-                    <div className="relative flex items-center gap-2 border-t border-slate-100 pt-2 mt-1">
-                         <span className="text-[10px] text-slate-400 uppercase">Manual:</span>
-                         <div className="relative flex-1">
-                            <input 
-                                type="text" 
-                                value={customElement}
-                                onChange={(e) => { 
-                                    setCustomElement(e.target.value); 
-                                    if(e.target.value) {
-                                        setSelectedElement('');
-                                        setShowPeriodicTable(false);
-                                    }
-                                }}
-                                placeholder="Symbol"
-                                maxLength={2}
-                                className={`w-full h-8 pl-2 rounded border font-bold focus:outline-none focus:ring-2 uppercase text-sm ${
-                                    customElement 
-                                        ? isCustomValid 
-                                            ? 'border-blue-500 ring-blue-500 bg-blue-50 text-blue-700' 
-                                            : 'border-red-500 ring-red-500 bg-red-50 text-red-700'
-                                        : 'border-slate-300'
-                                }`}
-                            />
-                         </div>
-                        {customElement && (
-                            <span className={`text-xs font-bold whitespace-nowrap ${isCustomValid ? 'text-blue-600' : 'text-red-500'}`}>
-                                {isCustomValid ? customElementInfo?.name : 'Invalid'}
-                            </span>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Resonance Structure Switcher */}
-            {localData.resonanceStructures && localData.resonanceStructures.length > 0 && (
-                <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow-lg border border-slate-200 z-20 max-w-xs">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                        <RefreshCw size={12} /> Resonance
-                    </h4>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                        <button
-                            onClick={() => handleResonanceSwitch(-1)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
-                                resonanceIndex === -1 
-                                    ? 'bg-indigo-100 text-indigo-700 border-indigo-200' 
-                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                            }`}
-                        >
-                            Major
-                        </button>
-                        {localData.resonanceStructures.map((_, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => handleResonanceSwitch(idx)}
-                                className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
-                                    resonanceIndex === idx 
-                                        ? 'bg-purple-100 text-purple-700 border-purple-200' 
-                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                                }`}
-                            >
-                                Contrib {idx + 1}
-                            </button>
-                        ))}
-                    </div>
-                    <p className="text-xs text-slate-500 italic">
-                        {resonanceIndex === -1 
-                            ? "Most stable contributor (or hybrid)" 
-                            : localData.resonanceStructures[resonanceIndex].description}
-                    </p>
-                </div>
-            )}
-
-            <div className="absolute bottom-4 left-4 bg-slate-800/90 backdrop-blur p-4 rounded-lg border border-slate-700 max-w-md transition-all pointer-events-none">
-                <h3 className={`text-white font-bold text-lg flex items-center gap-2 ${localData.name.includes("Impossible") || localData.name.includes("Invalid") ? "text-red-400" : ""}`}>
-                    {localData.name.includes("Impossible") && <AlertTriangle className="text-red-500"/>}
-                    {localData.name}
-                </h3>
-                <p className="text-slate-300 text-sm mt-1 leading-relaxed">
-                    {localData.description}
-                </p>
-                
-                {localData.symmetry && (
-                    <div className="mt-3 pt-3 border-t border-slate-700">
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold text-indigo-400 uppercase">Point Group:</span>
-                            <span className="text-sm font-mono text-white bg-indigo-900/50 px-2 rounded">{localData.symmetry.pointGroup}</span>
-                        </div>
-                        <div className="text-xs text-slate-400">
-                            <span className="font-bold mr-1">Elements:</span>
-                            {localData.symmetry.elements.join(", ")}
-                        </div>
-                    </div>
-                )}
-
-                <div className="mt-2 flex gap-2 text-xs text-slate-400 items-center justify-between">
-                    <div>
-                        <span>{localData.atoms.length} Atoms</span>
-                        <span className="mx-1">•</span>
-                        <span>{localData.bonds.length} Bonds</span>
-                    </div>
-                    <div className="text-emerald-400 font-medium italic text-[10px]">
-                        {mode === 'view' && 'Drag atoms to arrange. Hover for info.'}
-                        {mode === 'add-atom' && 'Click empty space to add atom'}
-                        {mode === 'add-bond' && 'Click 2 atoms to link. Click bond to cycle.'}
-                        {mode === 'edit-stereo' && 'Click single bonds to toggle Wedge/Dash.'}
-                        {mode === 'break-bond' && 'Click bond to break'}
-                        {mode === 'measure-angle' && 'Select 3 atoms (Start → Center → End)'}
-                    </div>
                 </div>
             </div>
-         </>
-      )}
+        )}
+
+        {showPeriodicTable && renderPeriodicTable()}
+
+        {/* Error Message */}
+        {errorMsg && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-pop">
+                <AlertTriangle size={18} /> {errorMsg}
+            </div>
+        )}
+
+        {/* Info Message */}
+        {data?.name === 'Impossible' && (
+             <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-amber-100 border border-amber-400 text-amber-800 px-6 py-3 rounded-xl shadow-lg z-40 max-w-md flex gap-3">
+                 <AlertTriangle className="shrink-0" />
+                 <div>
+                     <h4 className="font-bold">Chemically Impossible</h4>
+                     <p className="text-sm">{data.description}</p>
+                 </div>
+             </div>
+        )}
+
+        {/* Measured Angle */}
+        {measuredAngle && (
+             <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-skin-primary text-white px-4 py-2 rounded-lg shadow-lg z-50 font-bold">
+                Angle: {measuredAngle}°
+            </div>
+        )}
+
+        <svg ref={svgRef} className="w-full h-full cursor-crosshair touch-none"></svg>
+
+        {/* Tooltip */}
+        {tooltip && (
+            <div className="fixed bg-skin-surface text-skin-main p-3 rounded shadow-xl z-50 pointer-events-none border border-skin-border text-sm" style={{ left: tooltip.x + 15, top: tooltip.y + 15 }}>
+                <div className="font-bold border-b border-skin-border pb-1 mb-1">{tooltip.atom?.element} <span className="text-skin-muted text-xs">#{tooltip.atom?.id.slice(-4)}</span></div>
+                {tooltip.valencyInfo && (
+                     <div>Valency: {tooltip.valencyInfo.current} / {tooltip.valencyInfo.max} {tooltip.valencyInfo.warning && <span className="text-red-500 font-bold ml-1">!</span>}</div>
+                )}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-skin-muted mt-1 border-t border-skin-border pt-1">
+                    <span>Mass: {getElementData(tooltip.atom?.element || '').mass}</span>
+                    <span>At #: {getElementData(tooltip.atom?.element || '').atomicNumber}</span>
+                    <span className="col-span-2">Oxidation: {getElementData(tooltip.atom?.element || '').oxidationStates}</span>
+                </div>
+            </div>
+        )}
+        
+        {/* Resonance Selector */}
+        {data?.resonanceStructures && data.resonanceStructures.length > 0 && (
+             <div className="absolute bottom-6 right-6 bg-skin-surface/90 backdrop-blur p-4 rounded-xl border border-skin-border max-w-sm shadow-xl animate-slide-up">
+                 <div className="flex items-center justify-between mb-3">
+                     <h4 className="text-sm font-bold text-skin-main flex items-center gap-2"><Layers size={16}/> Resonance</h4>
+                 </div>
+                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                     <button 
+                        onClick={() => handleResonanceSwitch(-1)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${resonanceIndex === -1 ? 'bg-skin-primary border-skin-primary text-white' : 'bg-skin-base border-skin-border text-skin-muted hover:bg-skin-surface'}`}
+                     >
+                         Major
+                     </button>
+                     {data.resonanceStructures.map((rs, i) => (
+                         <button 
+                            key={i}
+                            onClick={() => handleResonanceSwitch(i)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border whitespace-nowrap ${resonanceIndex === i ? 'bg-skin-primary border-skin-primary text-white' : 'bg-skin-base border-skin-border text-skin-muted hover:bg-skin-surface'}`}
+                         >
+                            Structure {i + 1}
+                         </button>
+                     ))}
+                 </div>
+                 <p className="text-xs text-skin-muted mt-2 italic">
+                     {resonanceIndex === -1 ? data.description : data.resonanceStructures[resonanceIndex].description}
+                 </p>
+             </div>
+        )}
+
+        {/* Symmetry Info */}
+        {data?.symmetry && (
+             <div className="absolute bottom-6 left-6 bg-skin-surface/90 backdrop-blur p-4 rounded-xl border border-skin-border shadow-xl animate-slide-up">
+                 <h4 className="text-sm font-bold text-skin-main flex items-center gap-2 mb-2"><RefreshCw size={16}/> Symmetry</h4>
+                 <div className="text-xs text-skin-main">
+                     <span className="font-bold">Point Group:</span> {data.symmetry.pointGroup}
+                 </div>
+                 <div className="text-xs text-skin-muted mt-1">
+                     Elements: {data.symmetry.elements.join(", ")}
+                 </div>
+             </div>
+        )}
     </div>
   );
 };

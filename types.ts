@@ -5,7 +5,8 @@ export enum AppView {
   REACTION_TUTOR = 'REACTION_TUTOR',
   QUIZ_ARENA = 'QUIZ_ARENA',
   CHAT_TUTOR = 'CHAT_TUTOR',
-  ARCHIVE = 'ARCHIVE'
+  ARCHIVE = 'ARCHIVE',
+  STUDY_HUB = 'STUDY_HUB'
 }
 
 export interface Atom {
@@ -48,9 +49,10 @@ export interface ArchiveItem {
 
 export interface QuizQuestion {
   id: number;
+  type: 'mcq' | 'fitb' | 'short_answer';
   question: string;
-  options: string[];
-  correctAnswer: number; // Index
+  options?: string[]; // Only for MCQ
+  correctAnswer: string; // Text answer for all types
   explanation: string;
 }
 
@@ -68,6 +70,21 @@ export interface ReactionStep {
 export interface ReactionData {
   name: string;
   steps: ReactionStep[];
+  references?: string[];
+}
+
+export interface VideoResource {
+  title: string;
+  url: string;
+  source: string;
+}
+
+export interface StudyGuide {
+  topic: string;
+  summary: string;
+  keyPoints: string[];
+  commonMistakes: string[];
+  resources: VideoResource[];
 }
 
 export interface ChatMessage {
