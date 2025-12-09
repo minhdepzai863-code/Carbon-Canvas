@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { MoleculeData, Atom, Bond } from '../types';
-import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Ruler, RefreshCw, Info, Grid3X3, X, Trash2, Droplets, Stamp, Camera, Ghost } from 'lucide-react';
+import { Loader2, MousePointer2, Link as LinkIcon, Scissors, Wand2, PlusCircle, AlertTriangle, Layers, Ruler, RefreshCw, Grid3X3, X, Trash2, Droplets, Stamp, Camera, Ghost } from 'lucide-react';
 
 interface MoleculeVisualizerProps {
   data: MoleculeData | null;
@@ -316,7 +316,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
       // Resolve Name to Symbol if user typed a full name (e.g. "Carbon" -> "C")
       let symbol = inputStr;
       if (!PERIODIC_TABLE[inputStr.toUpperCase()]) {
-          const found = Object.entries(PERIODIC_TABLE).find(([k, v]) => v.name.toLowerCase() === inputStr.toLowerCase());
+          const found = Object.entries(PERIODIC_TABLE).find(([, v]) => v.name.toLowerCase() === inputStr.toLowerCase());
           if (found) symbol = found[0];
       }
 
@@ -981,7 +981,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
   }, [localData, mode, angleSelection, selectedAtomId, errorAtomIds, showHydrogens]); 
 
   const renderPeriodicTable = () => {
-      const elements = Object.entries(PERIODIC_TABLE).filter(([k,v]) => k !== 'UNKNOWN');
+      const elements = Object.entries(PERIODIC_TABLE).filter(([k]) => k !== 'UNKNOWN');
       return (
           <div className="absolute top-20 left-16 bg-skin-surface/95 backdrop-blur-md border border-skin-border p-4 rounded-xl shadow-2xl z-50 animate-enter max-w-[800px] overflow-auto max-h-[80vh]">
               <div className="flex justify-between items-center mb-4 border-b border-skin-border pb-2">
@@ -1193,7 +1193,7 @@ const MoleculeVisualizer: React.FC<MoleculeVisualizerProps> = ({ data, loading, 
                      >
                          Major
                      </button>
-                     {data.resonanceStructures.map((rs, i) => (
+                     {data.resonanceStructures.map((_, i) => (
                          <button 
                             key={i}
                             onClick={() => handleResonanceSwitch(i)}

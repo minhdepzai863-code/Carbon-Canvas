@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Atom, Beaker, BookOpen, BrainCircuit, Menu, MessageCircle, X, 
-  Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer, Palette, Moon, Sun, Gauge, Flame, Droplets, Video, ExternalLink, Book, FileText, Library, Loader2, AlertTriangle, Trash2, Eye
+  Award, ArrowRight, Zap, Search, Save, Archive, FlaskConical, CheckCircle, Lock, Play, GraduationCap, ChevronDown, ChevronUp, Thermometer, Palette, Moon, Gauge, Flame, Droplets, Video, ExternalLink, Book, Library, Loader2, AlertTriangle, Trash2, Eye
 } from 'lucide-react';
 import { AppView, MoleculeData, QuizData, ReactionData, ArchiveItem, Module, UserStats, StudyGuide } from './types';
 import * as gemini from './services/geminiService';
 import MoleculeVisualizer from './components/MoleculeVisualizer';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // --- Helper Components ---
 
@@ -149,7 +149,7 @@ const App = () => {
   // Reaction Conditions State
   const [reactionTemp, setReactionTemp] = useState(25);
   const [reactionPressure, setReactionPressure] = useState(1);
-  const [reactionCatalyst, setReactionCatalyst] = useState("");
+  const [reactionCatalyst] = useState("");
   const [reactionSolvent, setReactionSolvent] = useState("Ethanol");
   const [showConditions, setShowConditions] = useState(false);
 
@@ -332,14 +332,14 @@ const App = () => {
   };
 
   const handleQuizAnswerMCQ = (optionIdx: number) => {
-    if (showExplanation) return;
+    if (showExplanation || !quizData) return;
     setSelectedOption(optionIdx);
     setShowExplanation(true);
     // MCQ Check
-    if (quizData?.questions[currentQuestionIdx].options && 
+    if (quizData.questions[currentQuestionIdx].options && 
         quizData.questions[currentQuestionIdx].options![optionIdx] === quizData.questions[currentQuestionIdx].correctAnswer) {
         setQuizScore(s => s + 1);
-    } else if (quizData?.questions[currentQuestionIdx].options![optionIdx] === quizData.questions[currentQuestionIdx].correctAnswer) {
+    } else if (quizData.questions[currentQuestionIdx].options![optionIdx] === quizData.questions[currentQuestionIdx].correctAnswer) {
        // Fallback if correctAnswer matches string
        setQuizScore(s => s + 1);
     }
@@ -530,7 +530,7 @@ const App = () => {
                 
                 {/* Improved Curriculum Selector */}
                 <div className="flex flex-col items-end gap-1.5">
-                     <span className="text-[11px] font-black text-skin-muted uppercase tracking-widest flex items-center gap-1.5">
+                     <span className="text-[11px] font-black text-skin-muted uppercase tracking-wider flex items-center gap-1.5">
                          <GraduationCap size={14} className="text-skin-primary"/> Active Curriculum
                      </span>
                      <div className="relative z-20 group">
