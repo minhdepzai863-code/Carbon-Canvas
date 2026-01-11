@@ -9,15 +9,6 @@ export enum AppView {
   STUDY_HUB = 'STUDY_HUB'
 }
 
-export interface TooltipInteractionPreference {
-  showDelete: boolean;
-  showBond: boolean;
-  showSwap: boolean;
-  showGroup: boolean;
-  showInfo: boolean;
-  quantumView: boolean;
-}
-
 export interface Atom {
   id: string;
   element: string;
@@ -47,13 +38,6 @@ export interface MoleculeData {
     pointGroup: string;
     elements: string[];
   };
-}
-
-export interface DailyMolecule {
-  name: string;
-  fact: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
-  category: string;
 }
 
 export interface ArchiveItem {
