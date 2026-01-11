@@ -15,6 +15,7 @@ export interface TooltipInteractionPreference {
   showSwap: boolean;
   showGroup: boolean;
   showInfo: boolean;
+  quantumView: boolean;
 }
 
 export interface Atom {
@@ -46,6 +47,13 @@ export interface MoleculeData {
     pointGroup: string;
     elements: string[];
   };
+}
+
+export interface DailyMolecule {
+  name: string;
+  fact: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  category: string;
 }
 
 export interface ArchiveItem {
