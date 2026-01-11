@@ -9,6 +9,14 @@ export enum AppView {
   STUDY_HUB = 'STUDY_HUB'
 }
 
+export interface TooltipInteractionPreference {
+  showDelete: boolean;
+  showBond: boolean;
+  showSwap: boolean;
+  showGroup: boolean;
+  showInfo: boolean;
+}
+
 export interface Atom {
   id: string;
   element: string;

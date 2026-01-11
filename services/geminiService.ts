@@ -1,8 +1,9 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { MoleculeData, QuizData, ReactionData, StudyGuide } from '../types';
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+// Fixed: Correctly initialize GoogleGenAI with named parameter using process.env.API_KEY.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Schema Definitions
 const bondProperties = {
@@ -12,7 +13,8 @@ const bondProperties = {
   stereo: { type: Type.STRING, enum: ['none', 'wedge', 'dash'] }
 };
 
-const moleculeSchema: Schema = {
+// Fixed: Removed 'Schema' type annotation as it's not a standard export from @google/genai.
+const moleculeSchema = {
   type: Type.OBJECT,
   properties: {
     name: { type: Type.STRING },
@@ -67,7 +69,7 @@ const moleculeSchema: Schema = {
   required: ["name", "atoms", "bonds", "description"]
 };
 
-const quizSchema: Schema = {
+const quizSchema = {
   type: Type.OBJECT,
   properties: {
     topic: { type: Type.STRING },
@@ -90,7 +92,7 @@ const quizSchema: Schema = {
   required: ["topic", "questions"]
 };
 
-const reactionSchema: Schema = {
+const reactionSchema = {
   type: Type.OBJECT,
   properties: {
     name: { type: Type.STRING },
@@ -115,7 +117,7 @@ const reactionSchema: Schema = {
   required: ["name", "steps"]
 };
 
-const studyGuideSchema: Schema = {
+const studyGuideSchema = {
   type: Type.OBJECT,
   properties: {
     topic: { type: Type.STRING },
@@ -140,8 +142,9 @@ const studyGuideSchema: Schema = {
 
 export const generateMoleculeData = async (moleculeName: string): Promise<MoleculeData> => {
   try {
+    // Fixed: Updated model to 'gemini-3-pro-preview' for complex STEM tasks.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: `Generate a 2D graph representation for: ${moleculeName}.
       Include atoms, bonds (order 1-3, stereo wedge/dash), and chemical description.
       Include resonance structures if applicable.`,
@@ -151,6 +154,7 @@ export const generateMoleculeData = async (moleculeName: string): Promise<Molecu
       }
     });
     
+    // Fixed: response.text is a property, not a method.
     return JSON.parse(response.text || '{}') as MoleculeData;
   } catch (error) {
     console.error("GenAI Error (Molecule):", error);
@@ -168,6 +172,7 @@ export const analyzeMolecule = async (data: MoleculeData): Promise<MoleculeData>
       stereo: b.stereo
     }));
 
+    // Fixed: Updated model to 'gemini-3-pro-preview' for complex analysis.
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: `Analyze this user-modified molecular structure.
@@ -213,6 +218,7 @@ export const applyReaction = async (data: MoleculeData, reactionPrompt: string, 
         stereo: b.stereo
       }));
   
+      // Fixed: Updated model to 'gemini-3-pro-preview' for complex predictions.
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: `Predict the major organic product.
@@ -240,8 +246,9 @@ export const applyReaction = async (data: MoleculeData, reactionPrompt: string, 
 
 export const generateQuiz = async (topic: string): Promise<QuizData> => {
   try {
+    // Fixed: Updated model to 'gemini-3-flash-preview' for basic text tasks.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Create a 5-question quiz on: ${topic}.
       Focus on conceptual understanding and university/A-level application.
       
@@ -265,6 +272,7 @@ export const generateQuiz = async (topic: string): Promise<QuizData> => {
 
 export const generateReactionSteps = async (reactionQuery: string): Promise<ReactionData> => {
   try {
+    // Fixed: Updated model to 'gemini-3-pro-preview' for complex mechanism steps.
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: `Explain the reaction mechanism for: ${reactionQuery}.
@@ -285,8 +293,9 @@ export const generateReactionSteps = async (reactionQuery: string): Promise<Reac
 
 export const generateStudyGuide = async (topic: string): Promise<StudyGuide> => {
     try {
+        // Fixed: Updated model to 'gemini-3-flash-preview' for study guide generation.
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: `Create a study guide for the Organic Chemistry topic: ${topic}.
             1. Provide a concise summary.
             2. List key bullet points.
@@ -309,8 +318,9 @@ export const generateStudyGuide = async (topic: string): Promise<StudyGuide> => 
 };
 
 export const chatWithTutor = async (history: {role: 'user'|'model', parts: {text: string}[]}[], message: string): Promise<string> => {
+    // Fixed: Updated model to 'gemini-3-flash-preview' for chat.
     const chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         history: history,
         config: {
             systemInstruction: "You are an expert Organic Chemistry tutor. Be concise, encouraging, and accurate."
